@@ -22,7 +22,7 @@ struct AmbientWindowManagerTests {
     private let pastOneWatchdogTick = Duration.milliseconds(1_400)
 
     private func makeManager() -> AmbientWindowManager {
-        AmbientWindowManager { _ in AnyView(Color.clear) }
+        AmbientWindowManager { AnyView(Color.clear) }
     }
 
     // MARK: - Showing
@@ -60,35 +60,19 @@ struct AmbientWindowManagerTests {
     // The window is display-sized, so accepting events it does not need is how it ends up eating
     // clicks meant for other apps.
 
-    @Test func theWindowIgnoresTheMouseByDefault() {
+    @Test func theLightNeverAcceptsAMouseEvent() {
+        // The invariant the whole two-window split exists to guarantee. This window is the size of
+        // the display, and macOS offers exactly one real passthrough — a hitTest override stops a
+        // *view* handling a click the window was already handed, it does not return the click to
+        // the app underneath. Twice this cost the user their mouse before it was made permanent.
         let manager = makeManager()
         defer { manager.destroyWindow() }
 
         manager.show()
         #expect(manager.panelIgnoresMouseEvents == true)
-    }
 
-    @Test func itAcceptsClicksOnlyWhileSomethingIsClickable() {
-        let manager = makeManager()
-        defer { manager.destroyWindow() }
-        manager.show()
-
-        manager.setInteractive(true)
-        #expect(manager.panelIgnoresMouseEvents == false)
-
-        manager.setInteractive(false)
-        #expect(manager.panelIgnoresMouseEvents == true)
-    }
-
-    @Test func hidingAlsoGivesTheMouseBack() {
-        // Belt and braces: if the view is torn down mid-interaction it may never report going
-        // non-interactive, and a hidden window holding the mouse is unrecoverable from the UI.
-        let manager = makeManager()
-        defer { manager.destroyWindow() }
-
-        manager.show()
-        manager.setInteractive(true)
         manager.hide()
+        manager.show()
         #expect(manager.panelIgnoresMouseEvents == true)
     }
 
@@ -226,5 +210,111 @@ struct AmbientAppExclusionsTests {
             AmbientAppExclusions.bundleIdentifiers = ["us.zoom.xos"]
             #expect(announced)
         }
+    }
+}
+
+
+/// The clickable half. Small, content-sized, and the only ambient window allowed to take a click.
+@MainActor
+struct AmbientControlWindowManagerTests {
+
+    private func makeManager<V: View>(@ViewBuilder content: @escaping () -> V)
+        -> AmbientControlWindowManager
+    {
+        AmbientControlWindowManager { AnyView(content()) }
+    }
+
+    private func withControls() -> AmbientControlWindowManager {
+        makeManager { Text("Undo").padding(20) }
+    }
+
+    @Test func showPutsAPanelOnScreen() {
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        #expect(manager.panelExists)
+        #expect(manager.isPanelOnScreen)
+    }
+
+    @Test func itNeverTakesFocus() {
+        // Clicking Undo must not pull focus off the app the text just landed in, or the
+        // synthesized Cmd+Z arrives here and does nothing. That bug is not being reintroduced
+        // through a second window.
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        #expect(manager.panelCanBecomeKey == false)
+    }
+
+    @Test func theWindowIsOnlyAsBigAsItsContents() {
+        // The safety property of the split. A window that accepts clicks must not cover anything
+        // it does not draw, so it can never be anywhere near the size of the display.
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        let size = manager.panelSize
+        #expect(size != nil)
+        let screen = NSScreen.main?.frame.size ?? NSSize(width: 1440, height: 900)
+        #expect(size!.width < screen.width / 2)
+        #expect(size!.height < 200)
+    }
+
+    @Test func emptyContentIsTakenOffScreenEntirely() {
+        // Sizing to content is not enough on its own: an empty rectangle left on screen still
+        // absorbs clicks, which is the exact failure the split removes.
+        let manager = AmbientControlWindowManager(hasContent: { false }) {
+            AnyView(EmptyView())
+        }
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        #expect(!manager.isPanelOnScreen)
+    }
+
+    @Test func hideTakesItOffScreen() {
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        manager.hide()
+        #expect(!manager.isPanelOnScreen)
+    }
+
+    @Test func repositioningWhileHiddenDoesNotBringItBack() {
+        // The screen-change observers call reposition(); none of them may resurrect a window that
+        // was hidden on purpose.
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        manager.hide()
+        manager.reposition()
+        #expect(!manager.isPanelOnScreen)
+    }
+
+    @Test func destroyLeavesNothingBehind() {
+        let manager = withControls()
+        manager.show()
+        manager.destroyWindow()
+        #expect(!manager.panelExists)
+    }
+
+    @Test func destroyingWithoutShowingIsSafe() {
+        let manager = withControls()
+        manager.destroyWindow()
+        #expect(!manager.panelExists)
+    }
+
+    @Test func itCanBeShownAgainAfterBeingDestroyed() {
+        let manager = withControls()
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        manager.destroyWindow()
+        manager.show()
+        #expect(manager.isPanelOnScreen)
     }
 }

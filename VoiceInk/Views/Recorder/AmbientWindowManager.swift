@@ -56,12 +56,16 @@ final class AmbientRecorderPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
-        // Ignored by default, and only switched on for the moments something here is actually
-        // clickable — a result peek, the cancel button, the mode strip. The hosting view below also
-        // passes through everything it does not draw, but that is a second line of defence now
-        // rather than the only one: a display-sized window that accepts events is one SwiftUI
-        // hit-testing surprise away from swallowing every click on the machine, and the cost of
-        // being wrong is the user losing their mouse.
+        // Permanent, and there is deliberately no way to switch it off.
+        //
+        // This window is the size of the display. macOS offers exactly one real passthrough, and
+        // this is it — a `hitTest` override stops a *view* from handling a click the window has
+        // already been handed, it does not hand the click back to the app underneath. Twice now
+        // that misunderstanding has cost the user their mouse: once frozen entirely, once unable
+        // to click into the editor they were dictating into.
+        //
+        // Everything clickable lives in AmbientControlPanel, which is only as large as its
+        // contents. Nothing here should ever need an event.
         ignoresMouseEvents = true
         canHide = false
         hidesOnDeactivate = false
@@ -89,7 +93,7 @@ final class AmbientPassthroughHostingView<Content: View>: NSHostingView<Content>
 @MainActor
 final class AmbientWindowManager {
     private var panel: AmbientRecorderPanel?
-    private let makeView: (@escaping (Bool) -> Void) -> AnyView
+    private let makeView: () -> AnyView
 
     private var isShowing = false
     private var observers: [NSObjectProtocol] = []
@@ -99,20 +103,8 @@ final class AmbientWindowManager {
     ///   clickable content appears or leaves. Injected rather than built inline so the window's
     ///   lifecycle can be tested without standing up the engine — the bug that cost a whole
     ///   afternoon lived in that lifecycle and nothing was watching it.
-    init(content: @escaping (_ onInteractiveChange: @escaping (Bool) -> Void) -> AnyView) {
+    init(content: @escaping () -> AnyView) {
         self.makeView = content
-    }
-
-    convenience init(engine: VoiceInkEngine, recorder: Recorder) {
-        self.init { onInteractiveChange in
-            AnyView(
-                AmbientRecorderView(
-                    stateProvider: engine,
-                    recorder: recorder,
-                    onInteractiveChange: onInteractiveChange
-                )
-            )
-        }
     }
 
     // MARK: - Visible to tests
@@ -136,13 +128,7 @@ final class AmbientWindowManager {
     func hide() {
         isShowing = false
         stopObserving()
-        panel?.ignoresMouseEvents = true
         panel?.orderOut(nil)
-    }
-
-    /// Called by the view when clickable content appears or leaves.
-    func setInteractive(_ isInteractive: Bool) {
-        panel?.ignoresMouseEvents = !isInteractive
     }
 
     /// Tears the window down without yanking SwiftUI's floor out from under it.
@@ -163,7 +149,6 @@ final class AmbientWindowManager {
         guard let doomed = panel else { return }
         panel = nil
 
-        doomed.ignoresMouseEvents = true
         doomed.orderOut(nil)
 
         DispatchQueue.main.async {
@@ -255,8 +240,7 @@ final class AmbientWindowManager {
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let newPanel = AmbientRecorderPanel(contentRect: screenFrame)
 
-        let host = AmbientPassthroughHostingView(
-            rootView: makeView { [weak self] value in self?.setInteractive(value) })
+        let host = AmbientPassthroughHostingView(rootView: makeView())
         host.frame = NSRect(origin: .zero, size: screenFrame.size)
         host.autoresizingMask = [.width, .height]
         newPanel.contentView = host

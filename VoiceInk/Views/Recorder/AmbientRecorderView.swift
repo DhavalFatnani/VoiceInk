@@ -53,16 +53,16 @@ struct AmbientRecorderView<S: RecorderStateProvider & Observable>: View {
 
     var stateProvider: S
     var recorder: Recorder
-    /// Lets the window drop out of the event path entirely when nothing here is clickable.
-    var onInteractiveChange: (Bool) -> Void = { _ in }
+    /// Shared with `AmbientControlsView`, which draws the clickable half in its own window. The two
+    /// read the same engine state rather than talking to each other.
+    var meter: AmbientMeter
+    var healthMonitor: RecorderInputHealthMonitor
+    var silenceWatch: RecorderSilenceWatch
 
     @AppStorage(AmbientBackgroundMode.userDefaultsKey) private var backgroundMode =
         AmbientBackgroundMode.auto.rawValue
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
 
-    @State private var meter = AmbientMeter()
-    @State private var healthMonitor = RecorderInputHealthMonitor()
-    @State private var silenceWatch = RecorderSilenceWatch()
     @State private var processingEstimate = RecorderProcessingEstimate()
     @State private var hasShownContextForTake = false
     @State private var takeStartedAt: Date?
@@ -95,25 +95,6 @@ struct AmbientRecorderView<S: RecorderStateProvider & Observable>: View {
     }
 
     private var state: AmbientState { presentation.state }
-
-    /// When this window is allowed to accept mouse events at all.
-    ///
-    /// Recording is deliberately **not** in this list, even though the mode strip and cancel are on
-    /// screen throughout a take. This window is the size of the display, and a display-sized window
-    /// that accepts events captures every click landing on a pixel the light has painted — which,
-    /// now that the crest spans the full width and the edge wash is wider, is a great deal of the
-    /// screen. The effect is that you cannot click into the editor you are dictating *into*, which
-    /// is worse than any control this buys.
-    ///
-    /// `hitTest` returning nil does not rescue that. It only stops a *view* from handling a click
-    /// the window has already been given; `ignoresMouseEvents` is the only real passthrough. I had
-    /// that backwards, and the comment on the hosting view said so confidently.
-    ///
-    /// The controls are moving to their own small window, after which this can go back to covering
-    /// them. Until then ⌥1–9 still switches mode and Esc still cancels.
-    private var isInteractive: Bool {
-        stateProvider.resultPeek != nil || silenceWatch.secondsRemaining != nil
-    }
 
     var body: some View {
         ZStack {
@@ -159,58 +140,31 @@ struct AmbientRecorderView<S: RecorderStateProvider & Observable>: View {
             geometry = .current()
         }
         .task(id: stateProvider.recordingState) { await run() }
-        .onChange(of: isInteractive, initial: true) { _, value in onInteractiveChange(value) }
-        .onDisappear { onInteractiveChange(false) }
     }
 
     // MARK: - Text
 
+    /// Read-only captions only. Anything you can click — the peek's buttons, the countdown's
+    /// reprieve, the mode strip, cancel — lives in `AmbientControlsView`, in a window sized to its
+    /// contents. This one is the size of the display and must never accept a mouse event.
     private var words: some View {
         VStack(spacing: 12) {
-            if let caption {
+            if let caption, !caption.isInteractive {
                 AmbientCaption(
                     kind: caption,
                     tint: captionTint,
                     palette: palette,
-                    onUndo: { Task { await stateProvider.undoResultPeek() } },
-                    onRetry: { stateProvider.retryResultPeek() },
-                    onKeepRecording: { silenceWatch.reset() }
+                    onUndo: {}, onRetry: {}, onKeepRecording: {}
                 )
                 // Identity per kind, so a change of kind is an insert plus a remove — the two
-                // overlap and dissolve. Without this SwiftUI keeps one view and swaps its
-                // contents, and the text pops while the bloom jumps to its new size.
+                // overlap and dissolve rather than one view swapping its contents underneath.
                 .id(captionIdentity)
-                .transition(.opacity)
-            }
-
-            if stateProvider.recordingState == .recording {
-                HStack(spacing: 16) {
-                    AmbientModeStrip(tint: stateColor, palette: palette)
-
-                    Rectangle()
-                        .fill(palette.separator.opacity(0.7))
-                        .frame(width: 1, height: 13)
-
-                    AmbientTakeBar(
-                        clock: { AmbientTakeClock(meter: meter, palette: palette) },
-                        isEnhancementEnabled: isEnhancementEnabled,
-                        deviceName: healthMonitor.health.isProblem
-                            ? AudioDeviceManager.shared.currentInputDeviceName : nil,
-                        tint: stateColor,
-                        palette: palette,
-                        onCancel: { Task { await stateProvider.cancelTakeFromPanel() } }
-                    )
-                }
-                .ambientTextBloom(
-                    tint: stateColor, fill: palette.bloomFill,
-                    opacity: palette.isLight ? 0.85 : 0.62
-                )
-                .fixedSize()
                 .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, geometry.captionY)
+        .allowsHitTesting(false)
     }
 
     // MARK: - The take

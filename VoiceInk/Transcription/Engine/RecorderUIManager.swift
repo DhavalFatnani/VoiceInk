@@ -67,6 +67,14 @@ class RecorderUIManager: RecorderPanelPresenting {
 
     private var notchWindowManager: NotchWindowManager?
     private var ambientWindowManager: AmbientWindowManager?
+    /// The clickable half of the ambient surface, in its own content-sized window. Separate from
+    /// the light because a display-sized window must never accept mouse events.
+    private var ambientControlManager: AmbientControlWindowManager?
+    /// State the two ambient windows share. Owned here so both read one instance — the light draws
+    /// the meter, the controls show its clock, and two copies would drift apart.
+    private var ambientMeter: AmbientMeter?
+    private var ambientHealthMonitor: RecorderInputHealthMonitor?
+    private var ambientSilenceWatch: RecorderSilenceWatch?
     private var miniWindowManager: MiniWindowManager?
 
     private weak var engine: VoiceInkEngine?
@@ -145,9 +153,49 @@ class RecorderUIManager: RecorderPanelPresenting {
 
         case .ambient:
             if ambientWindowManager == nil {
-                ambientWindowManager = AmbientWindowManager(engine: engine, recorder: recorder)
+                let meter = ambientMeter ?? AmbientMeter()
+                let health = ambientHealthMonitor ?? RecorderInputHealthMonitor()
+                let silence = ambientSilenceWatch ?? RecorderSilenceWatch()
+                ambientMeter = meter
+                ambientHealthMonitor = health
+                ambientSilenceWatch = silence
+
+                ambientWindowManager = AmbientWindowManager {
+                    AnyView(
+                        AmbientRecorderView(
+                            stateProvider: engine,
+                            recorder: recorder,
+                            meter: meter,
+                            healthMonitor: health,
+                            silenceWatch: silence
+                        )
+                    )
+                }
+
+                let controls = AmbientControlWindowManager(
+                    hasContent: { [weak engine] in
+                        guard let engine else { return false }
+                        // The same three moments AmbientControlsView draws something for.
+                        return engine.resultPeek != nil
+                            || silence.secondsRemaining != nil
+                            || engine.recordingState == .recording
+                    }
+                ) { [weak self] in
+                    AnyView(
+                        AmbientControlsView(
+                            stateProvider: engine,
+                            recorder: recorder,
+                            meter: meter,
+                            healthMonitor: health,
+                            silenceWatch: silence,
+                            onContentChange: { [weak self] in self?.ambientControlManager?.reposition() }
+                        )
+                    )
+                }
+                ambientControlManager = controls
             }
             ambientWindowManager?.show()
+            ambientControlManager?.show()
         }
     }
 
@@ -159,6 +207,7 @@ class RecorderUIManager: RecorderPanelPresenting {
             miniWindowManager?.hide()
         case .ambient:
             ambientWindowManager?.hide()
+            ambientControlManager?.hide()
         }
     }
 
@@ -177,6 +226,8 @@ class RecorderUIManager: RecorderPanelPresenting {
         case .ambient:
             ambientWindowManager?.destroyWindow()
             ambientWindowManager = nil
+            ambientControlManager?.destroyWindow()
+            ambientControlManager = nil
         }
 
         guard isRecorderPanelVisible else { return }
