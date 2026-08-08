@@ -108,6 +108,13 @@ struct ModeView: View {
                 GeometryReader { geometry in
                     ScrollView {
                         VStack(spacing: 0) {
+                            MissingStarterModesBanner(
+                                enhancementService: enhancementService,
+                                aiService: aiService
+                            )
+                            .padding(.horizontal, 24)
+                            .padding(.top, 12)
+
                             if modeManager.configurations.isEmpty {
                                 VStack(spacing: 24) {
                                     Spacer()
