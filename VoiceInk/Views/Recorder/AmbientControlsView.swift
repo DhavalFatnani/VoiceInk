@@ -63,17 +63,22 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
 
     private var showsTakeBar: Bool { stateProvider.recordingState == .recording }
 
-    /// Whether the light is showing a caption of its own directly above us. Computed from the same
-    /// arbiter the light uses, so the two cannot disagree about who is drawing what.
-    private var lightHasCaption: Bool {
+    /// Whether to leave room for a caption in the light above us.
+    ///
+    /// Deliberately asks whether one is *expected* during this take, not whether one is on screen
+    /// right now. Reacting to the live transcript's arrival meant the controls sat high for the
+    /// first second of every take and then jumped down the moment the first word landed. Space
+    /// reserved for the whole take is briefly empty; space that moves is a flinch.
+    private var lightWillHaveCaption: Bool {
         switch presentation.captionSlot {
         case .problem, .context, .liveTranscript: return true
-        default: return false
+        default:
+            return stateProvider.recordingState == .recording && showLiveTranscript
         }
     }
 
     private var desiredTopInset: CGFloat {
-        guard lightHasCaption else { return 0 }
+        guard lightWillHaveCaption else { return 0 }
         let geometry = AmbientGeometry.current()
         return geometry.readOnlyCaptionHeight + geometry.controlGap
     }
@@ -121,9 +126,7 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
         .onChange(of: interactiveCaption) { _, _ in report() }
         .onChange(of: showsTakeBar) { _, _ in report() }
         .onChange(of: state) { _, _ in report() }
-        // The transcript appearing is what pushes the controls down, and it arrives on its own
-        // schedule rather than with any of the above.
-        .onChange(of: lightHasCaption) { _, _ in report() }
+        .onChange(of: lightWillHaveCaption) { _, _ in report() }
         .onAppear { report() }
         .task(id: stateProvider.recordingState) {
             guard stateProvider.recordingState == .recording else { return }

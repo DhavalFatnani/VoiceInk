@@ -56,12 +56,14 @@ struct AmbientGeometry: Equatable {
         (hasNotch ? notchHeight : 0) + crestBaseDepth + crestPeakDepth
     }
 
-    /// Deliberately measured against a *typical* crest rather than its maximum reach. Clearing the
-    /// loudest possible moment left a gap of dead screen most of the time and the caption floated
-    /// unattached; sitting where the light usually ends means a loud passage laps over the words,
-    /// which reads as text inside the glow rather than beneath it.
+    /// Below the crest's full reach, not its typical one.
+    ///
+    /// This used to clear only a typical crest, on the theory that a loud passage lapping over the
+    /// words would read as text sitting inside the light. In practice it reads as the transcript
+    /// being tangled up in the waveform, which is worse — the two are different kinds of
+    /// information and should not overlap at all.
     var captionY: CGFloat {
-        (hasNotch ? notchHeight : 0) + crestBaseDepth + crestPeakDepth * 0.42 + 12
+        (hasNotch ? notchHeight : 0) + crestBaseDepth + crestPeakDepth + 20
     }
 
     /// Height of a read-only caption in the light window.
