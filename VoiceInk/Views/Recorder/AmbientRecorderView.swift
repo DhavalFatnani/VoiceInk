@@ -96,12 +96,23 @@ struct AmbientRecorderView<S: RecorderStateProvider & Observable>: View {
 
     private var state: AmbientState { presentation.state }
 
-    /// The only three moments this surface has anything to click: the result peek's buttons, the
-    /// silence countdown's reprieve, and the mode strip and cancel shown during a take.
+    /// When this window is allowed to accept mouse events at all.
+    ///
+    /// Recording is deliberately **not** in this list, even though the mode strip and cancel are on
+    /// screen throughout a take. This window is the size of the display, and a display-sized window
+    /// that accepts events captures every click landing on a pixel the light has painted — which,
+    /// now that the crest spans the full width and the edge wash is wider, is a great deal of the
+    /// screen. The effect is that you cannot click into the editor you are dictating *into*, which
+    /// is worse than any control this buys.
+    ///
+    /// `hitTest` returning nil does not rescue that. It only stops a *view* from handling a click
+    /// the window has already been given; `ignoresMouseEvents` is the only real passthrough. I had
+    /// that backwards, and the comment on the hosting view said so confidently.
+    ///
+    /// The controls are moving to their own small window, after which this can go back to covering
+    /// them. Until then ⌥1–9 still switches mode and Esc still cancels.
     private var isInteractive: Bool {
-        stateProvider.resultPeek != nil
-            || silenceWatch.secondsRemaining != nil
-            || stateProvider.recordingState == .recording
+        stateProvider.resultPeek != nil || silenceWatch.secondsRemaining != nil
     }
 
     var body: some View {
