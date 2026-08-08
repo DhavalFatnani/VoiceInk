@@ -6,6 +6,13 @@ import SwiftUI
 /// without ever resolving into a shape, which is the line this whole surface walks: legible enough
 /// to read, formless enough not to be a panel.
 struct AmbientTextBloom: ViewModifier {
+    /// How far the blur spills past the laid-out bounds.
+    ///
+    /// The whole point of this bloom is that it has no edge — it fades out well beyond the text it
+    /// sits behind. Layout does not know that: `fittingSize` reports the content box, so a window
+    /// sized to fit clips the spill and turns a soft glow into a hard rectangle. Any container that
+    /// crops to its content has to reserve this much room around it.
+    static let spill: CGFloat = 44
     var tint: Color = .clear
     /// Dark under white text, light under black text. Passed in rather than derived so the caption
     /// and the take bar cannot disagree about which scheme they are in.

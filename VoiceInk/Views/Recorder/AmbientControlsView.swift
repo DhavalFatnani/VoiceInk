@@ -122,6 +122,9 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
             }
         }
         .fixedSize()
+        // Room for the bloom to fade out inside the window. Without it the window crops to the
+        // text box and the glow becomes a rectangle with hard edges.
+        .padding(AmbientTextBloom.spill)
         // Any change of shape has to reach the window, which cannot see SwiftUI's layout.
         .onChange(of: interactiveCaption) { _, _ in report() }
         .onChange(of: showsTakeBar) { _, _ in report() }

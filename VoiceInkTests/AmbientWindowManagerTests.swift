@@ -308,6 +308,26 @@ struct AmbientControlWindowManagerTests {
         #expect(!manager.panelExists)
     }
 
+    @Test func theWindowLeavesRoomForTheBloomToFade() {
+        // The bloom has no edge by design — it spills well past the text and fades out. A window
+        // cropped to fittingSize clips that spill and turns the glow into a hard rectangle, which
+        // is exactly what the split caused. The window has to be larger than its text box.
+        let text = Text("Undo")
+        let bare = AmbientControlWindowManager(layout: AmbientLayoutState()) { AnyView(text) }
+        let padded = AmbientControlWindowManager(layout: AmbientLayoutState()) {
+            AnyView(text.padding(AmbientTextBloom.spill))
+        }
+        defer {
+            bare.destroyWindow()
+            padded.destroyWindow()
+        }
+
+        bare.show()
+        padded.show()
+        let grew = (padded.panelSize?.width ?? 0) - (bare.panelSize?.width ?? 0)
+        #expect(abs(grew - AmbientTextBloom.spill * 2) < 1)
+    }
+
     @Test func itStepsBelowTheLightsCaption() {
         // Both windows position their content at captionY, which collides the moment they both
         // have something there — the live transcript and the mode row were drawing on top of each
