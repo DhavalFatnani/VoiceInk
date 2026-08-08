@@ -93,6 +93,7 @@ final class RecorderDensityJudge {
 @MainActor
 enum RecorderModeFamiliarity {
     private static let keyPrefix = "recorderModeUseCount."
+    private static let lastUsedPrefix = "recorderModeLastUsed."
 
     static func useCount(for modeID: UUID) -> Int {
         UserDefaults.standard.integer(forKey: keyPrefix + modeID.uuidString)
@@ -103,9 +104,21 @@ enum RecorderModeFamiliarity {
         return useCount(for: modeID) < RecorderDensityJudge.newModeUseThreshold
     }
 
-    static func recordUse(of modeID: UUID?) {
+    static func recordUse(of modeID: UUID?, at date: Date = Date()) {
         guard let modeID else { return }
         let key = keyPrefix + modeID.uuidString
         UserDefaults.standard.set(UserDefaults.standard.integer(forKey: key) + 1, forKey: key)
+        UserDefaults.standard.set(
+            date.timeIntervalSince1970, forKey: lastUsedPrefix + modeID.uuidString)
+    }
+
+    static func lastUsed(for modeID: UUID) -> Date? {
+        let stamp = UserDefaults.standard.double(forKey: lastUsedPrefix + modeID.uuidString)
+        return stamp > 0 ? Date(timeIntervalSince1970: stamp) : nil
+    }
+
+    /// Timestamps for the given modes, for ordering the chips by what you actually use.
+    static func lastUsedMap(for modeIDs: [UUID]) -> [UUID: Date] {
+        modeIDs.reduce(into: [:]) { map, id in map[id] = lastUsed(for: id) }
     }
 }

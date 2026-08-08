@@ -353,8 +353,17 @@ struct RecorderModeButton: View {
 
     private var hasModes: Bool { !enabledModes.isEmpty }
 
-    private var inlineModes: [ModeConfig] {
-        Array(enabledModes.prefix(Self.inlineModeLimit))
+    /// Chosen by recent use, so a mode added after the first four does not become unreachable.
+    private var inlineModes: [(offset: Int, element: ModeConfig)] {
+        let arrangement = RecorderModeOrdering.arrange(
+            modeIDs: enabledModes.map(\.id),
+            activeID: activeModeID,
+            lastUsed: RecorderModeFamiliarity.lastUsedMap(for: enabledModes.map(\.id)),
+            limit: Self.inlineModeLimit
+        )
+        return arrangement.visible.compactMap { slot in
+            enabledModes.first { $0.id == slot.modeID }.map { (slot.shortcutIndex, $0) }
+        }
     }
 
     private var activeModeID: UUID? {
@@ -407,7 +416,7 @@ struct RecorderModeButton: View {
 
     private var modeRow: some View {
         HStack(spacing: 4) {
-            RecorderModeChips(modes: Array(inlineModes.enumerated()), activeModeID: activeModeID)
+            RecorderModeChips(modes: inlineModes, activeModeID: activeModeID)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)))
     }
@@ -440,8 +449,18 @@ enum RecorderNotchModeSplit {
     static func columns(
         limit: Int = 4
     ) -> (leading: [(offset: Int, element: ModeConfig)], trailing: [(offset: Int, element: ModeConfig)]) {
-        let modes = Array(ModeManager.shared.enabledConfigurations.prefix(limit).enumerated())
-            .map { (offset: $0.offset, element: $0.element) }
+        let enabled = ModeManager.shared.enabledConfigurations
+        let arrangement = RecorderModeOrdering.arrange(
+            modeIDs: enabled.map(\.id),
+            activeID: ModeManager.shared.currentEffectiveConfiguration?.id,
+            lastUsed: RecorderModeFamiliarity.lastUsedMap(for: enabled.map(\.id)),
+            limit: limit
+        )
+        let modes = arrangement.visible.compactMap { slot in
+            enabled.first { $0.id == slot.modeID }.map {
+                (offset: slot.shortcutIndex, element: $0)
+            }
+        }
         let split = (modes.count + 1) / 2
         return (Array(modes.prefix(split)), Array(modes.dropFirst(split)))
     }

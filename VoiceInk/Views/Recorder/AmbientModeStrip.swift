@@ -23,27 +23,53 @@ struct AmbientModeStrip: View {
     /// Four is what fits at a readable size without the row starting to look like a toolbar.
     private static let limit = 4
 
-    private var modes: [ModeConfig] {
-        Array(modeManager.enabledConfigurations.prefix(Self.limit))
-    }
+    private var enabled: [ModeConfig] { modeManager.enabledConfigurations }
 
     private var activeModeID: UUID? {
         modeManager.currentEffectiveConfiguration?.id
     }
 
+    /// Chosen by recent use rather than by stored position, so a mode added later does not sit
+    /// permanently past the edge with nothing to say it exists.
+    private var arrangement: RecorderModeOrdering.Result {
+        RecorderModeOrdering.arrange(
+            modeIDs: enabled.map(\.id),
+            activeID: activeModeID,
+            lastUsed: RecorderModeFamiliarity.lastUsedMap(for: enabled.map(\.id)),
+            limit: Self.limit
+        )
+    }
+
     var body: some View {
-        if !modes.isEmpty {
+        let arrangement = self.arrangement
+        if !arrangement.visible.isEmpty {
             HStack(spacing: 18) {
-                ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
-                    AmbientModeItem(
-                        mode: mode,
-                        shortcutNumber: index + 1,
-                        isActive: mode.id == activeModeID,
-                        tint: tint,
-                        palette: palette
-                    ) {
-                        modeManager.setActiveConfiguration(mode)
+                ForEach(arrangement.visible, id: \.modeID) { slot in
+                    if let mode = enabled.first(where: { $0.id == slot.modeID }) {
+                        AmbientModeItem(
+                            mode: mode,
+                            // The stored position, because that is what ⌥N selects. Numbering by
+                            // display position would point every chip at the wrong mode.
+                            shortcutNumber: slot.shortcutIndex + 1,
+                            isActive: mode.id == activeModeID,
+                            tint: tint,
+                            palette: palette
+                        ) {
+                            modeManager.setActiveConfiguration(mode)
+                        }
                     }
+                }
+
+                if arrangement.hiddenCount > 0 {
+                    Text(
+                        String(
+                            format: String(localized: "+%lld more · ⌥1–%lld"),
+                            Int64(arrangement.hiddenCount), Int64(enabled.count))
+                    )
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(palette.textPrimary.opacity(0.55))
+                    .shadow(color: palette.textShadow, radius: 2, y: 1)
+                    .help(String(localized: "More modes are available by keyboard"))
                 }
             }
         }
