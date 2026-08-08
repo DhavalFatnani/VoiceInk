@@ -53,15 +53,24 @@ final class AmbientControlWindowManager {
     /// wrong here leaves an invisible rectangle absorbing clicks — the precise failure this window
     /// exists to avoid.
     private let hasContent: () -> Bool
+    private let layout: AmbientLayoutState
 
     private var isShowing = false
     private var observers: [NSObjectProtocol] = []
 
-    /// Distance below the hardware edge, matched to where the caption sits in the light so the two
-    /// read as one surface despite being two windows.
-    private var topOffset: CGFloat { AmbientGeometry.current().captionY }
+    /// Distance below the hardware edge. Starts where the light's caption starts, then steps past
+    /// it when the light is actually showing one — otherwise the transcript and the mode row draw
+    /// in the same place.
+    private var topOffset: CGFloat {
+        AmbientGeometry.current().captionY + layout.controlTopInset
+    }
 
-    init(hasContent: @escaping () -> Bool = { true }, content: @escaping () -> AnyView) {
+    init(
+        layout: AmbientLayoutState,
+        hasContent: @escaping () -> Bool = { true },
+        content: @escaping () -> AnyView
+    ) {
+        self.layout = layout
         self.hasContent = hasContent
         self.makeView = content
     }
@@ -72,6 +81,8 @@ final class AmbientControlWindowManager {
     var panelExists: Bool { panel != nil }
     var panelCanBecomeKey: Bool? { panel?.canBecomeKey }
     var panelSize: NSSize? { panel?.frame.size }
+    /// Top edge in AppKit's bottom-left coordinates, so a lower number means further down.
+    var panelTopEdge: CGFloat { panel?.frame.maxY ?? 0 }
 
     func show() {
         isShowing = true

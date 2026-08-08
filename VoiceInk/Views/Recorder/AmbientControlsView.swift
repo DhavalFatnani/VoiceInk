@@ -16,6 +16,7 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
     var meter: AmbientMeter
     var healthMonitor: RecorderInputHealthMonitor
     var silenceWatch: RecorderSilenceWatch
+    var layout: AmbientLayoutState
     /// Fires whenever the content appears, disappears or resizes, so the window can refit.
     var onContentChange: () -> Void = {}
 
@@ -62,6 +63,21 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
 
     private var showsTakeBar: Bool { stateProvider.recordingState == .recording }
 
+    /// Whether the light is showing a caption of its own directly above us. Computed from the same
+    /// arbiter the light uses, so the two cannot disagree about who is drawing what.
+    private var lightHasCaption: Bool {
+        switch presentation.captionSlot {
+        case .problem, .context, .liveTranscript: return true
+        default: return false
+        }
+    }
+
+    private var desiredTopInset: CGFloat {
+        guard lightHasCaption else { return 0 }
+        let geometry = AmbientGeometry.current()
+        return geometry.readOnlyCaptionHeight + geometry.controlGap
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             if let interactiveCaption {
@@ -102,14 +118,22 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
         }
         .fixedSize()
         // Any change of shape has to reach the window, which cannot see SwiftUI's layout.
-        .onChange(of: interactiveCaption) { _, _ in onContentChange() }
-        .onChange(of: showsTakeBar) { _, _ in onContentChange() }
-        .onChange(of: state) { _, _ in onContentChange() }
-        .onAppear { onContentChange() }
+        .onChange(of: interactiveCaption) { _, _ in report() }
+        .onChange(of: showsTakeBar) { _, _ in report() }
+        .onChange(of: state) { _, _ in report() }
+        // The transcript appearing is what pushes the controls down, and it arrives on its own
+        // schedule rather than with any of the above.
+        .onChange(of: lightHasCaption) { _, _ in report() }
+        .onAppear { report() }
         .task(id: stateProvider.recordingState) {
             guard stateProvider.recordingState == .recording else { return }
             background.sample()
         }
+    }
+
+    private func report() {
+        layout.controlTopInset = desiredTopInset
+        onContentChange()
     }
 
     /// Whether there is anything at all to show. The window manager orders the panel out when this

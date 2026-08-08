@@ -75,6 +75,7 @@ class RecorderUIManager: RecorderPanelPresenting {
     private var ambientMeter: AmbientMeter?
     private var ambientHealthMonitor: RecorderInputHealthMonitor?
     private var ambientSilenceWatch: RecorderSilenceWatch?
+    private var ambientLayout: AmbientLayoutState?
     private var miniWindowManager: MiniWindowManager?
 
     private weak var engine: VoiceInkEngine?
@@ -156,6 +157,8 @@ class RecorderUIManager: RecorderPanelPresenting {
                 let meter = ambientMeter ?? AmbientMeter()
                 let health = ambientHealthMonitor ?? RecorderInputHealthMonitor()
                 let silence = ambientSilenceWatch ?? RecorderSilenceWatch()
+                let layout = ambientLayout ?? AmbientLayoutState()
+                ambientLayout = layout
                 ambientMeter = meter
                 ambientHealthMonitor = health
                 ambientSilenceWatch = silence
@@ -173,6 +176,7 @@ class RecorderUIManager: RecorderPanelPresenting {
                 }
 
                 let controls = AmbientControlWindowManager(
+                    layout: layout,
                     hasContent: { [weak engine] in
                         guard let engine else { return false }
                         // The same three moments AmbientControlsView draws something for.
@@ -188,6 +192,7 @@ class RecorderUIManager: RecorderPanelPresenting {
                             meter: meter,
                             healthMonitor: health,
                             silenceWatch: silence,
+                            layout: layout,
                             onContentChange: { [weak self] in self?.ambientControlManager?.reposition() }
                         )
                     )

@@ -221,7 +221,7 @@ struct AmbientControlWindowManagerTests {
     private func makeManager<V: View>(@ViewBuilder content: @escaping () -> V)
         -> AmbientControlWindowManager
     {
-        AmbientControlWindowManager { AnyView(content()) }
+        AmbientControlWindowManager(layout: AmbientLayoutState()) { AnyView(content()) }
     }
 
     private func withControls() -> AmbientControlWindowManager {
@@ -265,9 +265,9 @@ struct AmbientControlWindowManagerTests {
     @Test func emptyContentIsTakenOffScreenEntirely() {
         // Sizing to content is not enough on its own: an empty rectangle left on screen still
         // absorbs clicks, which is the exact failure the split removes.
-        let manager = AmbientControlWindowManager(hasContent: { false }) {
-            AnyView(EmptyView())
-        }
+        let manager = AmbientControlWindowManager(
+            layout: AmbientLayoutState(), hasContent: { false }
+        ) { AnyView(EmptyView()) }
         defer { manager.destroyWindow() }
 
         manager.show()
@@ -306,6 +306,30 @@ struct AmbientControlWindowManagerTests {
         let manager = withControls()
         manager.destroyWindow()
         #expect(!manager.panelExists)
+    }
+
+    @Test func itStepsBelowTheLightsCaption() {
+        // Both windows position their content at captionY, which collides the moment they both
+        // have something there — the live transcript and the mode row were drawing on top of each
+        // other. The controls move down by the caption's height plus a gap.
+        let layout = AmbientLayoutState()
+        let manager = AmbientControlWindowManager(layout: layout) {
+            AnyView(Text("Undo").padding(20))
+        }
+        defer { manager.destroyWindow() }
+
+        manager.show()
+        let withoutCaption = manager.panelSize.map { _ in manager.panelTopEdge } ?? 0
+
+        let geometry = AmbientGeometry.current()
+        layout.controlTopInset = geometry.readOnlyCaptionHeight + geometry.controlGap
+        manager.reposition()
+        let withCaption = manager.panelTopEdge
+
+        #expect(withCaption < withoutCaption)
+        #expect(
+            abs((withoutCaption - withCaption)
+                - (geometry.readOnlyCaptionHeight + geometry.controlGap)) < 1)
     }
 
     @Test func itCanBeShownAgainAfterBeingDestroyed() {

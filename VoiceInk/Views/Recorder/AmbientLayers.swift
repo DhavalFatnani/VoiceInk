@@ -64,6 +64,18 @@ struct AmbientGeometry: Equatable {
         (hasNotch ? notchHeight : 0) + crestBaseDepth + crestPeakDepth * 0.42 + 12
     }
 
+    /// Height of a read-only caption in the light window.
+    ///
+    /// A constant rather than a measurement because every caption that stays in the light is
+    /// `lineLimit(1)` — one line of 13.5pt text plus the bloom's 10pt vertical padding either side.
+    /// The interactive captions, which do vary in height, live in the control window and size it
+    /// themselves.
+    var readOnlyCaptionHeight: CGFloat = 40
+
+    /// Breathing room between the caption and the controls. Matches the VStack spacing the two had
+    /// when they shared a window, so the split is invisible.
+    var controlGap: CGFloat = 14
+
     var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     }
@@ -353,4 +365,19 @@ struct AmbientTakeClock: View {
         let total = Int(meter.elapsed.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
     }
+}
+
+
+/// Where the control window sits, written by the view that knows and read by the window that needs
+/// it.
+///
+/// The two ambient windows both position their content at `captionY`, which is correct when only
+/// one of them has something there and a collision when both do — the live transcript and the mode
+/// row were landing on top of each other. The light cannot move (it is the whole display), so the
+/// controls step down past whatever the light is showing.
+@MainActor
+@Observable
+final class AmbientLayoutState {
+    /// Extra distance below `captionY`, because a read-only caption is occupying that space.
+    var controlTopInset: CGFloat = 0
 }
