@@ -117,8 +117,11 @@ enum ModeRuntimeResolver {
             return nil
         }
 
+        // The session override wins, then the mode's language, then whatever the model can do.
+        // This is the single point at which every take's language is decided, for every recorder
+        // style and every model — which is why the override needs no other plumbing.
         let language = TranscriptionLanguageSupport.validLanguageOrFallback(
-            mode.selectedLanguage,
+            LanguageSession.shared.override ?? mode.selectedLanguage,
             for: model,
             realtimeEnabled: mode.isRealtimeTranscriptionEnabled
         )

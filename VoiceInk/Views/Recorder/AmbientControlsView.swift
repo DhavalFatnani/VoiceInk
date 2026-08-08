@@ -63,6 +63,38 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
 
     private var showsTakeBar: Bool { stateProvider.recordingState == .recording }
 
+    private var activeMode: ModeConfig? { ModeManager.shared.currentEffectiveConfiguration }
+
+    /// The model this take will actually run on, so the chips can say what it can and cannot do.
+    private var activeModel: (any TranscriptionModel)? {
+        guard let name = activeMode?.selectedTranscriptionModelName else { return nil }
+        return TranscriptionModelRegistry.models.first { $0.name == name }
+    }
+
+    private var languageChips: AmbientLanguageChips? {
+        guard let model = activeModel else { return nil }
+        let supported = TranscriptionLanguageSupport.languages(
+            for: model, realtimeEnabled: activeMode?.isRealtimeTranscriptionEnabled)
+
+        // Named only if the user already has it installed — suggesting a model they would have to
+        // go and download is not advice they can act on from a floating panel.
+        let capable = TranscriptionModelRegistry.models.first { candidate in
+            candidate.name != model.name
+                && candidate.isMultilingualModel
+                && LanguageSession.shared.recents.allSatisfy {
+                    TranscriptionLanguageSupport.languages(for: candidate)[$0] != nil
+                }
+        }
+
+        return AmbientLanguageChips(
+            tint: tint,
+            palette: palette,
+            supported: supported,
+            modeLanguage: activeMode?.selectedLanguage,
+            capableModelName: capable?.displayName
+        )
+    }
+
     /// Whether to leave room for a caption in the light above us.
     ///
     /// Deliberately asks whether one is *expected* during this take, not whether one is on screen
@@ -100,6 +132,14 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
                 HStack(spacing: 16) {
                     AmbientModeStrip(tint: tint, palette: palette)
 
+                    if let languageChips, languageChips.hasSomethingToOffer {
+                        Rectangle()
+                            .fill(palette.separator.opacity(0.7))
+                            .frame(width: 1, height: 13)
+
+                        languageChips
+                    }
+
                     Rectangle()
                         .fill(palette.separator.opacity(0.7))
                         .frame(width: 1, height: 13)
@@ -130,7 +170,13 @@ struct AmbientControlsView<S: RecorderStateProvider & Observable>: View {
         .onChange(of: showsTakeBar) { _, _ in report() }
         .onChange(of: state) { _, _ in report() }
         .onChange(of: lightWillHaveCaption) { _, _ in report() }
-        .onAppear { report() }
+        .onAppear {
+            // Useful on the first take rather than after a week of teaching it.
+            LanguageSession.shared.seedIfEmpty(
+                with: ModeManager.shared.configurations.compactMap(\.selectedLanguage))
+            report()
+        }
+        .onChange(of: LanguageSession.shared.override) { _, _ in report() }
         .task(id: stateProvider.recordingState) {
             guard stateProvider.recordingState == .recording else { return }
             background.sample()
