@@ -74,6 +74,9 @@ class TranscriptionPipeline {
         /// Declared out here so the save closure below can still see it — the replacements run
         /// deep inside the transcription branch.
         var dictionaryHitCount: Int?
+        /// Why enhancement did not run, when the mode asked for it. Nil when it ran, and nil when
+        /// the mode never wanted it — only set for the case worth knowing about.
+        var enhancementSkipReason: String?
 
         func finishCanceledTranscription() async {
             await onCancel()
@@ -174,6 +177,21 @@ class TranscriptionPipeline {
                     !shouldRespondInRecorder && isSkipShortEnhancementEnabled
                     && WordCounter.count(in: text) <= shortEnhancementWordThreshold
 
+                // Recorded only when the mode asked for enhancement and did not get it. A mode with
+                // enhancement switched off is not a fault and must not be reported as one.
+                if let resolvedEnhancementConfiguration,
+                    resolvedEnhancementConfiguration.isEnabled
+                {
+                    if shouldSkipEnhancement {
+                        enhancementSkipReason = "short-transcript"
+                    } else if let enhancementService {
+                        enhancementSkipReason = enhancementService
+                            .readiness(for: resolvedEnhancementConfiguration).recordedReason
+                    } else {
+                        enhancementSkipReason = "no-service"
+                    }
+                }
+
                 if let enhancementService,
                     let resolvedEnhancementConfiguration,
                     resolvedEnhancementConfiguration.isEnabled,
@@ -259,7 +277,8 @@ class TranscriptionPipeline {
                         // the app the text is about to land in.
                         targetBundleIdentifier: NSWorkspace.shared.frontmostApplication?
                             .bundleIdentifier,
-                        dictionaryHitCount: dictionaryHitCount
+                        dictionaryHitCount: dictionaryHitCount,
+                        enhancementSkipReason: enhancementSkipReason
                     )
                 } catch {
                     logger.error("Failed to record session metric: \(error, privacy: .public)")

@@ -12,6 +12,10 @@ struct RecorderResultPeek: Equatable, Identifiable {
     let pastedText: String
     let originalText: String
     let hasEnhancement: Bool
+    /// Set when this mode asked for enhancement and did not get it. Shown in the peek, because a
+    /// take that came back raw looks exactly like one that was never meant to be enhanced, and the
+    /// difference is the whole reason the text is wrong.
+    var enhancementSkipExplanation: String?
     let duration: TimeInterval
     let modeName: String?
     /// The app the text was pasted into. Clicking a peek button makes the recorder panel key,

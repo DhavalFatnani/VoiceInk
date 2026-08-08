@@ -86,25 +86,86 @@ class AIEnhancementService {
         return aiService
     }
 
-    func isConfigured(for configuration: EnhancementRuntimeConfiguration) -> Bool {
-        guard let provider = configuration.provider else { return false }
+    /// Why enhancement can or cannot run.
+    ///
+    /// This was a `Bool`, and every one of the five ways it could be false collapsed into the same
+    /// answer. The pipeline then skipped enhancement with no error, no notification and nothing
+    /// recorded, so a take that should have been rewritten came back raw and looked identical to
+    /// one that simply had enhancement switched off. That is how an app-wide outage ran for hours
+    /// unnoticed. A reason is the difference between "this is broken" and "this is broken *here*".
+    enum Readiness: Equatable {
+        case ready
+        case noProvider
+        case noPrompt
+        case missingAPIKey(provider: String)
+        case customProviderUnavailable(model: String?)
+        case refineUnavailable
 
-        if provider == .voiceInkRefine {
-            return aiService.voiceInkRefineService.isAvailableInModes
+        var isReady: Bool { self == .ready }
+
+        /// Plain enough to put in front of someone mid-dictation.
+        var explanation: String? {
+            switch self {
+            case .ready:
+                return nil
+            case .noProvider:
+                return String(localized: "No AI provider is selected for this mode.")
+            case .noPrompt:
+                return String(localized: "This mode has no prompt selected.")
+            case .missingAPIKey(let provider):
+                return String(
+                    format: String(localized: "No API key for %@."), provider)
+            case .customProviderUnavailable(let model):
+                return String(
+                    format: String(localized: "The custom provider for %@ isn't configured."),
+                    model ?? String(localized: "this model"))
+            case .refineUnavailable:
+                return String(localized: "VoiceInk Refine isn't available right now.")
+            }
         }
 
-        guard configuration.prompt != nil else { return false }
+        /// Short, stable, and safe to persist — the display strings are localised and will change.
+        var recordedReason: String? {
+            switch self {
+            case .ready: return nil
+            case .noProvider: return "no-provider"
+            case .noPrompt: return "no-prompt"
+            case .missingAPIKey: return "missing-api-key"
+            case .customProviderUnavailable: return "custom-provider-unavailable"
+            case .refineUnavailable: return "refine-unavailable"
+            }
+        }
+    }
+
+    func readiness(for configuration: EnhancementRuntimeConfiguration) -> Readiness {
+        guard let provider = configuration.provider else { return .noProvider }
+
+        if provider == .voiceInkRefine {
+            return aiService.voiceInkRefineService.isAvailableInModes ? .ready : .refineUnavailable
+        }
+
+        guard configuration.prompt != nil else { return .noPrompt }
 
         if provider == .localCLI || provider == .ollama {
-            return true
+            return .ready
         }
 
         if provider == .custom {
-            guard let modelName = configuration.modelName else { return false }
-            return CustomAIProviderManager.shared.requestConfiguration(forModel: modelName) != nil
+            guard let modelName = configuration.modelName,
+                CustomAIProviderManager.shared.requestConfiguration(forModel: modelName) != nil
+            else {
+                return .customProviderUnavailable(model: configuration.modelName)
+            }
+            return .ready
         }
 
         return APIKeyManager.shared.hasAPIKey(forProvider: provider.rawValue)
+            ? .ready
+            : .missingAPIKey(provider: provider.rawValue)
+    }
+
+    func isConfigured(for configuration: EnhancementRuntimeConfiguration) -> Bool {
+        readiness(for: configuration).isReady
     }
 
     private func waitForRateLimit() async throws {

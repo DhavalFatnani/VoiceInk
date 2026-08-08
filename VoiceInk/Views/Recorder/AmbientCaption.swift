@@ -133,6 +133,23 @@ struct AmbientCaption: View {
             .foregroundStyle(palette.textSecondary)
             .lineLimit(1)
 
+        // Louder than the summary line above it: this is the reason the text in front of you is
+        // not what you asked for, and it stayed invisible for hours the one time it mattered.
+        if let explanation = peek.enhancementSkipExplanation {
+            HStack(spacing: 5) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9))
+                Text(
+                    String(
+                        format: String(localized: "Enhancement skipped — %@"), explanation)
+                )
+                .font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundStyle(palette.color(for: .working))
+            .shadow(color: palette.textShadow, radius: 2, y: 1)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
         HStack(spacing: 16) {
             AmbientTextButton(title: "Undo", tint: tint, action: onUndo)
             AmbientTextButton(title: "Retry", tint: tint, action: onRetry)

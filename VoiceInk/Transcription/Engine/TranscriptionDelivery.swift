@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftData
 import os
 
 @MainActor
@@ -191,6 +192,44 @@ final class TranscriptionDelivery {
     /// when enhancement changed it.
     private var pendingPeekSource: Request?
 
+    /// Reads the reason back off the recorded session rather than threading it through delivery.
+    ///
+    /// The pipeline has already worked it out and written it down by this point, and re-deriving it
+    /// here would mean two places deciding the same thing and eventually disagreeing.
+    private func enhancementSkipExplanation(for transcription: Transcription) -> String? {
+        let id = transcription.id
+        let descriptor = FetchDescriptor<SessionMetric>(
+            predicate: #Predicate<SessionMetric> { $0.transcriptionId == id }
+        )
+        // The transcript carries its own context; delivery has no separate handle on the store.
+        guard let context = transcription.modelContext,
+            let reason = try? context.fetch(descriptor).first?.enhancementSkipReason
+        else { return nil }
+        return Self.explanation(for: reason)
+    }
+
+    /// Persisted reasons are short and stable; the words shown to a person are neither.
+    static func explanation(for reason: String) -> String? {
+        switch reason {
+        case "missing-api-key":
+            return String(localized: "no API key for the selected provider")
+        case "no-prompt":
+            return String(localized: "this mode has no prompt")
+        case "no-provider":
+            return String(localized: "no AI provider selected")
+        case "custom-provider-unavailable":
+            return String(localized: "the custom provider isn't configured")
+        case "refine-unavailable":
+            return String(localized: "VoiceInk Refine is unavailable")
+        case "short-transcript":
+            return String(localized: "the transcript was too short")
+        case "no-service":
+            return String(localized: "the enhancement service wasn't available")
+        default:
+            return nil
+        }
+    }
+
     private func peek(for pastedText: String) -> RecorderResultPeek? {
         guard let request = pendingPeekSource else { return nil }
         let transcription = request.transcription
@@ -199,6 +238,7 @@ final class TranscriptionDelivery {
             pastedText: pastedText,
             originalText: transcription.text,
             hasEnhancement: transcription.enhancedText != nil,
+            enhancementSkipExplanation: enhancementSkipExplanation(for: transcription),
             duration: transcription.duration,
             modeName: transcription.modeName,
             targetBundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,

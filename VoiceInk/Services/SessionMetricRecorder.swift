@@ -31,7 +31,8 @@ enum SessionMetricRecorder {
         in modelContext: ModelContext,
         timestamp: Date = Date(),
         targetBundleIdentifier: String? = nil,
-        dictionaryHitCount: Int? = nil
+        dictionaryHitCount: Int? = nil,
+        enhancementSkipReason: String? = nil
     ) throws -> Bool {
         guard transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue else {
             return false
@@ -73,7 +74,8 @@ enum SessionMetricRecorder {
             enhancementDuration: enhancementDuration,
             enhancementEstimatedTokenCount: enhancementTokenEstimate?.tokenCount,
             targetBundleIdentifier: targetBundleIdentifier,
-            dictionaryHitCount: dictionaryHitCount
+            dictionaryHitCount: dictionaryHitCount,
+            enhancementSkipReason: enhancementSkipReason
         )
 
         modelContext.insert(metric)

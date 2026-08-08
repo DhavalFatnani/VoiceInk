@@ -26,6 +26,9 @@ final class SessionMetric {
     /// How many dictionary replacements fired. Nil means the take predates this being recorded,
     /// which is different from zero and has to stay distinguishable.
     var dictionaryHitCount: Int?
+    /// Why enhancement did not run on a take that asked for it. Nil means it ran, or was never
+    /// wanted. Optional so SwiftData migrates in place.
+    var enhancementSkipReason: String?
 
     init(
         transcriptionId: UUID,
@@ -41,7 +44,8 @@ final class SessionMetric {
         enhancementDuration: TimeInterval?,
         enhancementEstimatedTokenCount: Int? = nil,
         targetBundleIdentifier: String? = nil,
-        dictionaryHitCount: Int? = nil
+        dictionaryHitCount: Int? = nil,
+        enhancementSkipReason: String? = nil
     ) {
         self.id = UUID()
         self.transcriptionId = transcriptionId
@@ -59,5 +63,6 @@ final class SessionMetric {
         self.targetBundleIdentifier = targetBundleIdentifier
         self.wasUndone = false
         self.dictionaryHitCount = dictionaryHitCount
+        self.enhancementSkipReason = enhancementSkipReason
     }
 }

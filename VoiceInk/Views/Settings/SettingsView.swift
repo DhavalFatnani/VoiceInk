@@ -320,6 +320,8 @@ struct SettingsView: View {
             }
 
             Section("Diagnostics") {
+                EnhancementDiagnosticView(enhancementService: enhancementService)
+
                 DiagnosticsSettingsView()
             }
         }
