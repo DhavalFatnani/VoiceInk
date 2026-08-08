@@ -82,9 +82,10 @@ enum StarterModeFactory {
             triggerGroups: triggerGroups(for: template.kind, installedApps: installedApps),
             isAIEnhancementEnabled: template.usesAIEnhancement,
             selectedPrompt: template.promptId?.uuidString,
-            selectedTranscriptionModelName: transcriptionModelName,
+            selectedTranscriptionModelName: template.requiredTranscriptionModelName
+                ?? transcriptionModelName,
             isRealtimeTranscriptionEnabled: isRealtimeTranscriptionEnabled,
-            selectedLanguage: selectedLanguage,
+            selectedLanguage: template.requiredLanguage ?? selectedLanguage,
             useClipboardContext: template.kind == .email,
             useSelectedTextContext: template.useSelectedTextContext,
             useScreenCapture: template.useScreenCapture,

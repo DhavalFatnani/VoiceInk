@@ -313,6 +313,13 @@ struct ModeConfigFormView: View {
             .onAppear {
                 draft.selectedLanguage = effectiveLanguage(for: modelInfo)
             }
+
+            if let notice = languageGapNotice(for: modelInfo) {
+                Text(notice)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else if let selectedModel = effectiveModelName,
             let modelInfo = warmupSnapshot.transcriptionModel(named: selectedModel),
             !modelInfo.isMultilingualModel
@@ -707,6 +714,51 @@ struct ModeConfigFormView: View {
         else { return false }
         return model.provider == .gemini
     }
+
+    /// Languages this model cannot do that another installed model can.
+    ///
+    /// The picker only ever lists what the current model supports, so a language it cannot handle
+    /// is simply absent — indistinguishable from the app not supporting it at all. Parakeet, the
+    /// default, covers no Indic language whatsoever, which reads as "VoiceInk has no Hindi" rather
+    /// than "this model has no Hindi". Naming the model that *can* is the whole point.
+    private func languageGapNotice(for model: any TranscriptionModel) -> String? {
+        let supported = Set(availableLanguages(for: model).keys)
+        let missing = Self.commonlyExpectedLanguages.filter { !supported.contains($0.key) }
+        guard !missing.isEmpty else { return nil }
+
+        let alternative = warmupSnapshot.usableTranscriptionModels.first { candidate in
+            candidate.name != model.name
+                && candidate.isMultilingualModel
+                && missing.keys.allSatisfy {
+                    TranscriptionLanguageSupport.languages(for: candidate)[$0] != nil
+                }
+        }
+
+        let names = missing.values.sorted().joined(separator: ", ")
+        guard let alternative else {
+            return String(
+                format: String(localized: "%@ can't transcribe %@."),
+                model.displayName, names)
+        }
+        return String(
+            format: String(localized: "%@ can't transcribe %@. %@ can."),
+            model.displayName, names, alternative.displayName)
+    }
+
+    /// Deliberately not the full list of everything any model lacks — that would be a wall of text
+    /// on every mode. These are the ones a user is most likely to go looking for and not find.
+    private static let commonlyExpectedLanguages: [String: String] = [
+        "hi": String(localized: "Hindi"),
+        "bn": String(localized: "Bengali"),
+        "ta": String(localized: "Tamil"),
+        "te": String(localized: "Telugu"),
+        "mr": String(localized: "Marathi"),
+        "ur": String(localized: "Urdu"),
+        "ar": String(localized: "Arabic"),
+        "ja": String(localized: "Japanese"),
+        "ko": String(localized: "Korean"),
+        "zh": String(localized: "Chinese"),
+    ]
 
     private func availableLanguages(for model: any TranscriptionModel) -> [String: String] {
         TranscriptionLanguageSupport.languages(for: model, realtimeEnabled: draft.isRealtimeTranscriptionEnabled)

@@ -22,6 +22,7 @@ enum PromptTemplates {
     static let emailPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
     static let rewritePromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     static let assistantPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+    static let hinglishPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
 
     static var all: [TemplatePrompt] {
         createTemplatePrompts()
@@ -57,6 +58,37 @@ enum PromptTemplates {
                     - Keep emojis or emotive markers that already exist. Do not invent new ones.
                     - Use short lines, natural breaks, and simple lists when they improve readability.
                     - Do not add greetings, sign-offs, facts, opinions, or commentary.
+                    """,
+                useSystemInstructions: true
+            ),
+
+            TemplatePrompt(
+                id: hinglishPromptId,
+                title: "Hinglish",
+                promptText: """
+                    Rewrite the dictated speech in <TRANSCRIPT> as natural romanized Hinglish — the
+                    way Hindi speakers actually type in chat and email.
+
+                    # Script
+                    - Everything in Latin script. Never output Devanagari.
+                    - Transliterate Hindi words phonetically the way people type them: "mujhe",
+                      "kyunki", "thoda", "abhi", "chahiye". Not academic transliteration — no
+                      diacritics, no "muj̈he".
+                    - Keep English words as English. Do not translate them into Hindi, and do not
+                      spell them phonetically. It is "meeting", not "miting".
+
+                    # What not to change
+                    - Do not translate the text into either pure Hindi or pure English. The mix is
+                      the point — preserve which language each phrase was said in.
+                    - Do not formalise. If the speech is casual, the output is casual.
+                    - Do not add greetings, sign-offs, facts, or commentary.
+
+                    # Cleanup
+                    - Fix obvious transcription errors, especially English words that came back
+                      garbled after being spoken inside a Hindi sentence.
+                    - Remove filler ("matlab", "yaar", "you know") only where it is clearly verbal
+                      stumbling rather than part of the tone.
+                    - Sentence case and normal punctuation. Capitalise proper nouns.
                     """,
                 useSystemInstructions: true
             ),

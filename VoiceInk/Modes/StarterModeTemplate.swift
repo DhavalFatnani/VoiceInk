@@ -6,6 +6,7 @@ enum StarterModeKind: String, CaseIterable, Identifiable {
     case email
     case rewrite
     case assistant
+    case hinglish
 
     var id: String { rawValue }
 }
@@ -23,6 +24,13 @@ struct StarterModeTemplate: Identifiable {
     let useSelectedTextContext: Bool
     let useScreenCapture: Bool
     let isDefault: Bool
+
+    /// Overrides the model chosen at install time. Only set where the default genuinely cannot do
+    /// the job — Parakeet supports no Indic language at all, so a Hindi mode pointed at it would
+    /// silently transcribe nothing usable.
+    var requiredTranscriptionModelName: String?
+    /// Overrides the install-time language.
+    var requiredLanguage: String?
 
     var featureLabels: [String] {
         var labels = ["Transcription", "Realtime"]
@@ -61,6 +69,28 @@ enum StarterModeCatalog {
             useSelectedTextContext: false,
             useScreenCapture: false,
             isDefault: true
+        ),
+        StarterModeTemplate(
+            kind: .hinglish,
+            id: UUID(uuidString: "10000000-0000-0000-0000-000000000006")!,
+            name: "Hinglish",
+            icon: .symbol("character.bubble"),
+            description: String(localized: "Hindi and English mixed, written the way you type it."),
+            guidance: String(
+                localized:
+                    "Use this when you switch between Hindi and English mid-sentence. Speech is transcribed in Hindi and rewritten as romanized Hinglish, so \"mujhe lagta hai we should ship it\" comes out exactly that way rather than in Devanagari or mistranslated into one language."
+            ),
+            promptId: PromptTemplates.hinglishPromptId,
+            outputMode: .paste,
+            usesAIEnhancement: true,
+            useSelectedTextContext: true,
+            useScreenCapture: false,
+            isDefault: false,
+            // Parakeet supports no Indic language whatsoever, so this mode cannot use the default.
+            requiredTranscriptionModelName: "ggml-large-v3",
+            // Hindi rather than auto: with code-switched speech, auto-detect frequently settles on
+            // English and then transcribes the Hindi half phonetically into nonsense.
+            requiredLanguage: "hi"
         ),
         StarterModeTemplate(
             kind: .enhance,
