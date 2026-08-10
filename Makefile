@@ -16,7 +16,7 @@ PACKAGE_VALIDATION_FLAGS := -skipPackagePluginValidation -skipMacroValidation
 LOCAL_SIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| grep -q "VoiceInk Local Dev" && echo "VoiceInk Local Dev" || echo "-")
 
-.PHONY: all clean whisper setup build local local-cert test check healthcheck help dev run release release-setup
+.PHONY: all clean whisper setup build local local-cert dmg test check healthcheck help dev run release release-setup
 
 # Default target
 all: check build
@@ -73,6 +73,34 @@ test: setup
 		PROVISIONING_PROFILE_SPECIFIER="" \
 		CODE_SIGN_ENTITLEMENTS="$(CURDIR)/VoiceInk/VoiceInk.local.entitlements" \
 		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD'
+
+# A DMG you can actually install from, without an Apple Developer account.
+#
+# `make release` builds the real thing: Developer ID signed, notarized, stapled, with an appcast.
+# It requires a paid Apple Developer certificate and stored notarization credentials, and fails at
+# its first check without them. This target is the local equivalent — same disk image layout, same
+# drag-to-Applications flow, signed with the stable self-signed identity so privacy grants survive.
+#
+# It is NOT notarized, so it is only good for this machine. Do not hand it to anyone else: Gatekeeper
+# on another Mac will refuse it, and telling people to right-click-Open is how bad habits start.
+dmg: local
+	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Debug/VoiceInk.app"; \
+	STAGE="$(CURDIR)/.dmg-stage"; \
+	DMG="$$HOME/Downloads/VoiceInk.dmg"; \
+	rm -rf "$$STAGE" "$$DMG"; \
+	mkdir -p "$$STAGE"; \
+	ditto "$$APP_PATH" "$$STAGE/VoiceInk.app"; \
+	ln -s /Applications "$$STAGE/Applications"; \
+	hdiutil create -volname "VoiceInk" -srcfolder "$$STAGE" -ov -format UDZO "$$DMG" >/dev/null; \
+	rm -rf "$$STAGE"; \
+	if [ "$(LOCAL_SIGN_IDENTITY)" != "-" ]; then \
+		codesign --force --sign "$(LOCAL_SIGN_IDENTITY)" "$$DMG"; \
+	fi; \
+	echo ""; \
+	echo "Disk image: $$DMG"; \
+	echo "Open it and drag VoiceInk to Applications."; \
+	echo ""; \
+	echo "Not notarized — this machine only."
 
 # One-time setup: a stable self-signed identity so macOS keeps privacy grants across rebuilds
 local-cert:
@@ -167,6 +195,7 @@ help:
 	@echo "  build              Build the VoiceInk Xcode project"
 	@echo "  local              Build for local use (no Apple Developer certificate needed)"
 	@echo "  test               Run the unit test suite"
+	@echo "  dmg                Build an installable DMG (local, not notarized)"
 	@echo "  run                Launch the built VoiceInk app"
 	@echo "  dev                Build and run the app (for development)"
 	@echo "  release            Build DMG and Appcast using release-notes/<version>.html"
