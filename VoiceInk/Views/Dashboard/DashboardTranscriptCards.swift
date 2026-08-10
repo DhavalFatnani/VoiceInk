@@ -134,6 +134,8 @@ private struct DashboardTranscriptCardRow: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
+        // Failures are no longer stored here, but rows written before that change still carry the
+        // error string as their enhanced text and would otherwise be shown as a result.
         return trimmed.range(of: "Enhancement failed:", options: [.caseInsensitive, .anchored]) == nil
     }
 

@@ -225,6 +225,8 @@ final class TranscriptionDelivery {
             return String(localized: "the transcript was too short")
         case "no-service":
             return String(localized: "the enhancement service wasn't available")
+        case "failed":
+            return String(localized: "the AI request failed or timed out")
         default:
             return nil
         }

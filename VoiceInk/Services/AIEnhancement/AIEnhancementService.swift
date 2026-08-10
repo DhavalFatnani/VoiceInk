@@ -38,9 +38,25 @@ class AIEnhancementService {
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
     private let customVocabularyService: CustomVocabularyService
-    private var baseTimeout: TimeInterval {
+    /// How long to wait, which is a different question for a cloud API than for a model running on
+    /// this machine.
+    ///
+    /// Seven seconds is generous for a hosted endpoint and impossible for a local one. A 26B model
+    /// answering from RAM takes tens of seconds on a laptop, and an 18 GB one that has to page in
+    /// takes longer still — so every local enhancement timed out, wrote a failure, and handed back
+    /// raw dictation. It looked like enhancement was broken; it had simply never been given time to
+    /// finish.
+    ///
+    /// An explicit `EnhancementTimeoutSeconds` still wins, for anyone who has already tuned it.
+    private func timeout(for provider: AIProvider) -> TimeInterval {
         let stored = UserDefaults.standard.integer(forKey: "EnhancementTimeoutSeconds")
-        return stored > 0 ? TimeInterval(stored) : 7
+        if stored > 0 { return TimeInterval(stored) }
+        return Self.runsLocally(provider) ? 180 : 7
+    }
+
+    /// Runs on this machine, so the limit is hardware rather than a network round trip.
+    static func runsLocally(_ provider: AIProvider) -> Bool {
+        provider == .ollama || provider == .localCLI
     }
     private let rateLimitInterval: TimeInterval = 1.0
     private var lastRequestTime: Date?
@@ -310,7 +326,7 @@ class AIEnhancementService {
                     text: formattedText,
                     systemPrompt: systemMessage,
                     model: modelName,
-                    timeout: baseTimeout
+                    timeout: timeout(for: provider)
                 )
                 return (
                     AIEnhancementOutputFilter.filter(result),
@@ -364,7 +380,7 @@ class AIEnhancementService {
                     systemPrompt: systemMessage,
                     thinkingLevel: ReasoningConfig.geminiThinkingLevel(for: modelName),
                     store: false,
-                    timeout: baseTimeout
+                    timeout: timeout(for: provider)
                 )
             case .anthropic:
                 result = try await AnthropicLLMClient.chatCompletion(
@@ -372,7 +388,7 @@ class AIEnhancementService {
                     model: modelName,
                     messages: [.user(formattedText)],
                     systemPrompt: systemMessage,
-                    timeout: baseTimeout
+                    timeout: timeout(for: provider)
                 )
             case .custom:
                 guard
@@ -388,7 +404,7 @@ class AIEnhancementService {
                     messages: [.user(formattedText)],
                     systemPrompt: systemMessage,
                     temperature: 0.3,
-                    timeout: baseTimeout
+                    timeout: timeout(for: provider)
                 )
             default:
                 guard let baseURL = URL(string: provider.baseURL) else {
@@ -413,7 +429,7 @@ class AIEnhancementService {
                     temperature: temperature,
                     reasoningEffort: reasoningEffort,
                     extraBody: extraBody,
-                    timeout: baseTimeout
+                    timeout: timeout(for: provider)
                 )
             }
             return (

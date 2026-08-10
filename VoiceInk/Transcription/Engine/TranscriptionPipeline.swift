@@ -77,6 +77,9 @@ class TranscriptionPipeline {
         /// Why enhancement did not run, when the mode asked for it. Nil when it ran, and nil when
         /// the mode never wanted it — only set for the case worth knowing about.
         var enhancementSkipReason: String?
+        /// The provider's own words, kept for the notification and the peek. Not persisted as the
+        /// enhanced text.
+        var enhancementFailureDetail: String?
 
         func finishCanceledTranscription() async {
             await onCancel()
@@ -228,7 +231,16 @@ class TranscriptionPipeline {
                     } catch {
                         let errorDescription = EnhancementFailureFormatter.description(for: error)
                         let failureMessage = EnhancementFailureFormatter.message(description: errorDescription)
-                        transcription.enhancedText = failureMessage
+                        // Deliberately *not* written to `enhancedText`. That field means "what the
+                        // AI produced", and storing an error there makes a failed take look like a
+                        // successful rewrite to everything downstream — the history list already
+                        // carries a string-prefix hack to undo it, and the dashboard's enhancement
+                        // metric would count the error text as words the model changed.
+                        //
+                        // The failure is recorded as a reason instead, next to the skips, so a take
+                        // that came back raw can always say why.
+                        enhancementSkipReason = "failed"
+                        enhancementFailureDetail = errorDescription
                         responseError = errorDescription
                         await MainActor.run {
                             NotificationManager.shared.showNotification(
