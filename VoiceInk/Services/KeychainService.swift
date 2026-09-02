@@ -24,6 +24,31 @@ final class KeychainService: @unchecked Sendable {
         case unavailable(OSStatus)
     }
 
+    enum WriteResult {
+        case saved
+        case failed(OSStatus)
+
+        var didSave: Bool {
+            if case .saved = self { return true }
+            return false
+        }
+
+        /// Whether retrying could ever succeed.
+        var isPermanent: Bool {
+            guard case .failed(let status) = self else { return false }
+            return KeychainService.isPermanentFailure(status)
+        }
+    }
+
+    /// Whether a Security status can clear on its own.
+    ///
+    /// A locked Keychain or a busy `securityd` does. A build the Keychain refuses to talk to — no
+    /// signing entitlement, which is every ad-hoc signed build — refuses every subsequent call the
+    /// same way, so anything looping on it is looping forever.
+    static func isPermanentFailure(_ status: OSStatus) -> Bool {
+        status == errSecMissingEntitlement || status == errSecNotAvailable
+    }
+
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "KeychainService")
     private let service = "com.prakashjoshipax.VoiceInk"
 
@@ -39,11 +64,7 @@ final class KeychainService: @unchecked Sendable {
         syncable: Bool = true,
         accessibility: Accessibility? = nil
     ) -> Bool {
-        guard let data = value.data(using: .utf8) else {
-            logger.error("Failed to convert value to data for key: \(key, privacy: .public)")
-            return false
-        }
-        return save(data: data, forKey: key, syncable: syncable, accessibility: accessibility)
+        write(value, forKey: key, syncable: syncable, accessibility: accessibility).didSave
     }
 
     /// Saves data to Keychain.
@@ -54,6 +75,31 @@ final class KeychainService: @unchecked Sendable {
         syncable: Bool = true,
         accessibility: Accessibility? = nil
     ) -> Bool {
+        write(data: data, forKey: key, syncable: syncable, accessibility: accessibility).didSave
+    }
+
+    /// Saves a string while preserving the Security framework status, so callers that retry can
+    /// tell a transient failure from one that will never clear.
+    func write(
+        _ value: String,
+        forKey key: String,
+        syncable: Bool = true,
+        accessibility: Accessibility? = nil
+    ) -> WriteResult {
+        guard let data = value.data(using: .utf8) else {
+            logger.error("Failed to convert value to data for key: \(key, privacy: .public)")
+            return .failed(errSecParam)
+        }
+        return write(data: data, forKey: key, syncable: syncable, accessibility: accessibility)
+    }
+
+    /// Saves data while preserving the Security framework status.
+    func write(
+        data: Data,
+        forKey key: String,
+        syncable: Bool = true,
+        accessibility: Accessibility? = nil
+    ) -> WriteResult {
         let query = baseQuery(forKey: key, syncable: syncable)
         var attributes: [String: Any] = [kSecValueData as String: data]
         if let accessibility {
@@ -63,14 +109,14 @@ final class KeychainService: @unchecked Sendable {
 
         if updateStatus == errSecSuccess {
             logger.info("Successfully updated keychain item for key: \(key, privacy: .public)")
-            return true
+            return .saved
         }
 
         guard updateStatus == errSecItemNotFound else {
             logger.error(
                 "Failed to update keychain item for key: \(key, privacy: .public), status: \(updateStatus, privacy: .public)"
             )
-            return false
+            return .failed(updateStatus)
         }
 
         var addQuery = query
@@ -82,26 +128,26 @@ final class KeychainService: @unchecked Sendable {
 
         if addStatus == errSecSuccess {
             logger.info("Successfully saved keychain item for key: \(key, privacy: .public)")
-            return true
+            return .saved
         }
 
         if addStatus == errSecDuplicateItem {
             let retryStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
             if retryStatus == errSecSuccess {
                 logger.info("Successfully updated concurrently created keychain item for key: \(key, privacy: .public)")
-                return true
+                return .saved
             }
 
             logger.error(
                 "Failed to update concurrently created keychain item for key: \(key, privacy: .public), status: \(retryStatus, privacy: .public)"
             )
-            return false
+            return .failed(retryStatus)
         }
 
         logger.error(
             "Failed to save keychain item for key: \(key, privacy: .public), status: \(addStatus, privacy: .public)"
         )
-        return false
+        return .failed(addStatus)
     }
 
     /// Retrieves a string value from Keychain.

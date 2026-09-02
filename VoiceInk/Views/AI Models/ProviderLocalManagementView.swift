@@ -138,8 +138,28 @@ struct LocalEnhancementServiceManagementView: View {
                         aiService.selectModel(newValue, for: .ollama)
                     }
                 }
+
+                if let warning = selectedOllamaModelFootprint?.warning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(
+                            selectedModelExceedsMemory ? AppTheme.Status.error : AppTheme.Status.warningStrong
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, LocalProviderMetrics.labelWidth + 12)
+                }
             }
         }
+    }
+
+    /// What the chosen model would cost in memory, so an impossible choice is visible here rather
+    /// than as a timeout two minutes into a stalled Mac.
+    private var selectedOllamaModelFootprint: LocalModelFootprint? {
+        aiService.ollamaModelFootprint(named: selectedOllamaModel)
+    }
+
+    private var selectedModelExceedsMemory: Bool {
+        selectedOllamaModelFootprint?.fit == .exceedsMemory
     }
 
     private var localCLIConfiguration: some View {

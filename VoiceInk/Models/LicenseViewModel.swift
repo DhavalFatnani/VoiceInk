@@ -444,13 +444,27 @@ final class LicenseViewModel {
                 clearValidationMessage()
             }
         case .unavailable(let status):
+            let isRepeat = !isPersistentStateAvailable && persistentStateErrorStatus == status
             isPersistentStateAvailable = false
             persistentStateErrorStatus = status
-            logger.error("License state is temporarily unavailable [Keychain status: \(status, privacy: .public)]")
+            // Every trigger that reads license state lands here while the Keychain is out, and each
+            // one used to log. On a build the Keychain has refused, that is a line a second for as
+            // long as the app is open, which buries everything else in the log.
+            if !isRepeat {
+                logger.error("License state is unavailable [Keychain status: \(status, privacy: .public)]")
+            }
             licenseState = .licensed
             setStorageError(keychainUnavailableMessage)
             stateRefreshTask?.cancel()
             stateRefreshTask = nil
+
+            guard !KeychainService.isPermanentFailure(status) else {
+                if !isRepeat {
+                    logger.error("The Keychain will not serve this build, so license storage will not be retried.")
+                }
+                return
+            }
+
             scheduleStorageRetryIfNeeded()
         }
     }

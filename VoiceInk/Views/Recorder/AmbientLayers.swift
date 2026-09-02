@@ -24,7 +24,9 @@ struct AmbientGeometry: Equatable {
     var crestPeakDepth: CGFloat = 52
 
     static func current() -> AmbientGeometry {
-        let screen = NSScreen.main
+        // Notch and corner geometry belong to the display the light is drawn on, which is not
+        // necessarily the one holding the active app's key window.
+        let screen = AmbientActiveScreen.current()
         let inset = screen?.safeAreaInsets.top ?? 0
         let hasNotch = inset > 0
 

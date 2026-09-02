@@ -7,21 +7,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menuBarManager?.applyActivationPolicy()
+
+        // Opening the app is a request to see it. Without this, "Hide Dock Icon" sends the main
+        // window straight back out again and the launch looks like a no-op.
+        if !AppLaunchContext.isLoginItemLaunch() {
+            WindowManager.shared.prepareForUserRequestedMainWindow()
+        }
     }
 
+    /// Re-opening is always deliberate — a double-click in Applications, a Dock click, Spotlight —
+    /// so it shows the window whether or not the Dock icon is hidden.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let menuBarManager, !menuBarManager.isMenuBarOnly {
-            if WindowManager.shared.currentMainWindow() != nil {
-                WindowManager.shared.showMainWindow()
-                return false
-            }
-
-            WindowManager.shared.prepareForUserRequestedMainWindow()
-            NotificationCenter.default.post(name: .showMainWindowRequested, object: nil)
+        if WindowManager.shared.currentMainWindow() != nil {
+            WindowManager.shared.showMainWindow()
             return false
         }
 
-        return true
+        WindowManager.shared.prepareForUserRequestedMainWindow()
+        NotificationCenter.default.post(name: .showMainWindowRequested, object: nil)
+        return false
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

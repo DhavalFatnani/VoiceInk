@@ -38,20 +38,9 @@ class AIEnhancementService {
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
     private let customVocabularyService: CustomVocabularyService
-    /// How long to wait, which is a different question for a cloud API than for a model running on
-    /// this machine.
-    ///
-    /// Seven seconds is generous for a hosted endpoint and impossible for a local one. A 26B model
-    /// answering from RAM takes tens of seconds on a laptop, and an 18 GB one that has to page in
-    /// takes longer still — so every local enhancement timed out, wrote a failure, and handed back
-    /// raw dictation. It looked like enhancement was broken; it had simply never been given time to
-    /// finish.
-    ///
-    /// An explicit `EnhancementTimeoutSeconds` still wins, for anyone who has already tuned it.
+
     private func timeout(for provider: AIProvider) -> TimeInterval {
-        let stored = UserDefaults.standard.integer(forKey: "EnhancementTimeoutSeconds")
-        if stored > 0 { return TimeInterval(stored) }
-        return Self.runsLocally(provider) ? 180 : 7
+        EnhancementTimeoutPolicy.seconds(runsLocally: Self.runsLocally(provider))
     }
 
     /// Runs on this machine, so the limit is hardware rather than a network round trip.
@@ -251,8 +240,14 @@ class AIEnhancementService {
                 ""
             }
 
-        let contextBlocks = [selectedTextContext, clipboardContext, screenCaptureContext]
-            .filter { !$0.isEmpty }
+        // Deliberate first, incidental last: what the person selected outranks what happened to be
+        // on screen, so the budget is spent on the most intentional context before the rest.
+        let contextBlocks = EnhancementContextBudget.fit(
+            [selectedTextContext, clipboardContext, screenCaptureContext],
+            within: EnhancementContextBudget.limit(
+                runsLocally: configuration.provider.map(Self.runsLocally) ?? false
+            )
+        )
 
         let contextSection =
             if !contextBlocks.isEmpty {
@@ -322,11 +317,15 @@ class AIEnhancementService {
 
         if provider == .ollama {
             do {
+                let requestTimeout = timeout(for: provider)
+                logger.info(
+                    "Ollama request model=\(modelName, privacy: .public) timeout=\(requestTimeout, format: .fixed(precision: 0), privacy: .public)s promptChars=\(systemMessage.count + formattedText.count, privacy: .public)"
+                )
                 let result = try await aiService.enhanceWithOllama(
                     text: formattedText,
                     systemPrompt: systemMessage,
                     model: modelName,
-                    timeout: timeout(for: provider)
+                    timeout: requestTimeout
                 )
                 return (
                     AIEnhancementOutputFilter.filter(result),
@@ -337,7 +336,9 @@ class AIEnhancementService {
                 if let localError = error as? LocalAIError {
                     switch localError {
                     case .timeout:
-                        throw EnhancementError.timeout
+                        throw EnhancementError.timeout(
+                            timeoutContext(for: provider, modelName: modelName)
+                        )
                     default:
                         throw EnhancementError.customError(
                             localError.errorDescription ?? "An unknown Ollama error occurred.")
@@ -440,7 +441,7 @@ class AIEnhancementService {
                 formattedText
             )
         } catch let error as LLMKitError {
-            throw mapLLMKitError(error)
+            throw mapLLMKitError(error, provider: provider)
         } catch let error as EnhancementError {
             throw error
         } catch {
@@ -463,7 +464,7 @@ class AIEnhancementService {
         return key
     }
 
-    private func mapLLMKitError(_ error: LLMKitError) -> EnhancementError {
+    private func mapLLMKitError(_ error: LLMKitError, provider: AIProvider) -> EnhancementError {
         switch error {
         case .missingAPIKey:
             return .notConfigured
@@ -476,14 +477,42 @@ class AIEnhancementService {
         case .networkError:
             return .networkError
         case .timeout:
-            return .timeout
+            return .timeout(timeoutContext(for: provider, modelName: nil))
         case .invalidURL, .decodingError, .encodingError:
             return .customError(error.localizedDescription ?? "An unknown error occurred.")
         }
     }
 
+    /// Everything known about a timeout at the moment it happens, so the message can name the real
+    /// cause rather than reaching for the network.
+    private func timeoutContext(for provider: AIProvider, modelName: String?) -> EnhancementError.Timeout {
+        let runsLocally = Self.runsLocally(provider)
+        let footprint = modelName.flatMap { name in
+            provider == .ollama ? aiService.ollamaModelFootprint(named: name) : nil
+        }
+
+        return EnhancementError.Timeout(
+            seconds: timeout(for: provider),
+            runsLocally: runsLocally,
+            modelFootprint: footprint
+        )
+    }
+
     private var retryOnTimeout: Bool {
         UserDefaults.standard.bool(forKey: "EnhancementRetryOnTimeout")
+    }
+
+    /// Whether a failed request is worth sending again.
+    ///
+    /// Retrying earns its keep against a hosted API: a dropped connection, a rate limit, a 503
+    /// behind a load balancer are all transient, and the second attempt usually lands. None of
+    /// those exist on localhost. A local model that timed out did so because it is loading slowly
+    /// or does not fit in memory, and both get worse with company — each retry asks the machine to
+    /// page the same weights in again while it is already thrashing, turning one slow take into
+    /// three and taking the rest of the system down with it.
+    private static func isWorthRetrying(_ provider: AIProvider?) -> Bool {
+        guard let provider else { return true }
+        return !runsLocally(provider)
     }
 
     private func makeRequestWithRetry(
@@ -495,6 +524,7 @@ class AIEnhancementService {
     ) async throws -> (text: String, systemMessage: String?, userMessage: String?) {
         var retries = 0
         var currentDelay = initialDelay
+        let retryable = Self.isWorthRetrying(configuration.provider)
 
         while retries < maxRetries {
             do {
@@ -506,6 +536,10 @@ class AIEnhancementService {
             } catch let error as EnhancementError {
                 switch error {
                 case .networkError, .serverError, .rateLimitExceeded:
+                    guard retryable else {
+                        logger.error("Local provider failed, failing immediately (a retry would not help).")
+                        throw error
+                    }
                     retries += 1
                     if retries < maxRetries {
                         logger.warning(
@@ -518,7 +552,7 @@ class AIEnhancementService {
                         throw error
                     }
                 case .timeout:
-                    if retryOnTimeout {
+                    if retryOnTimeout && retryable {
                         retries += 1
                         if retries < maxRetries {
                             logger.warning(
@@ -529,7 +563,9 @@ class AIEnhancementService {
                             throw error
                         }
                     } else {
-                        logger.error("Request timed out, failing immediately (retry disabled).")
+                        logger.error(
+                            "Request timed out, failing immediately (\(retryable ? "retry disabled" : "local provider", privacy: .public))."
+                        )
                         throw error
                     }
                 default:
@@ -538,6 +574,7 @@ class AIEnhancementService {
             } catch {
                 let nsError = error as NSError
                 if nsError.domain == NSURLErrorDomain
+                    && retryable
                     && [NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost].contains(
                         nsError.code)
                 {
@@ -690,8 +727,21 @@ enum EnhancementError: Error {
     case networkError
     case serverError
     case rateLimitExceeded
-    case timeout
+    case timeout(Timeout)
     case customError(String)
+
+    /// What was waited on, and for how long.
+    ///
+    /// A timeout used to read the same either way: "check your connection or increase the timeout".
+    /// For a model running on localhost there is no connection to check, and the advice sent people
+    /// looking at their wifi while their Mac paged an oversized model in and out of disk. The
+    /// context travels with the error so the message can say which of those actually happened.
+    struct Timeout: Sendable {
+        let seconds: TimeInterval
+        let runsLocally: Bool
+        /// Present only when the model is known to be a poor fit for this machine's memory.
+        let modelFootprint: LocalModelFootprint?
+    }
 }
 
 extension EnhancementError: LocalizedError {
@@ -709,11 +759,48 @@ extension EnhancementError: LocalizedError {
             return String(localized: "The AI provider's server encountered an error. Please try again later.")
         case .rateLimitExceeded:
             return String(localized: "Rate limit exceeded. Please try again later.")
-        case .timeout:
-            return String(
-                localized: "Enhancement request timed out. Check your connection or increase the timeout duration.")
+        case .timeout(let timeout):
+            return timeout.description
         case .customError(let message):
             return message
         }
+    }
+}
+
+extension EnhancementError.Timeout {
+    var description: String {
+        let waited = Int(seconds.rounded())
+
+        guard runsLocally else {
+            return String(
+                format: String(
+                    localized:
+                        "Enhancement request timed out after %ds. Check your connection or increase the timeout duration."
+                ),
+                waited
+            )
+        }
+
+        // A model that cannot fit is the whole answer; nothing else is worth saying.
+        if modelFootprint?.fit == .exceedsMemory, let warning = modelFootprint?.warning {
+            return warning
+        }
+
+        // Anything else timed out, and the size is at most a contributing detail. Leading with the
+        // size read as though "it will run, but slowly" were the reason it failed, which is not an
+        // explanation of anything.
+        let timedOut = String(
+            format: String(
+                localized:
+                    "The local model did not answer within %ds. It may still be loading, or be busy."
+            ),
+            waited
+        )
+
+        if modelFootprint?.fit == .tight, let warning = modelFootprint?.warning {
+            return "\(timedOut) \(warning)"
+        }
+
+        return timedOut
     }
 }

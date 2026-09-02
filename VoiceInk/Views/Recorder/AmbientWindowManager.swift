@@ -179,7 +179,7 @@ final class AmbientWindowManager {
             return
         }
 
-        guard let screen = NSScreen.main else { return }
+        guard let screen = AmbientActiveScreen.current() else { return }
 
         if panel.frame != screen.frame {
             panel.setFrame(screen.frame, display: true)
@@ -237,7 +237,7 @@ final class AmbientWindowManager {
     }
 
     private func build() {
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let screenFrame = AmbientActiveScreen.current()?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let newPanel = AmbientRecorderPanel(contentRect: screenFrame)
 
         let host = AmbientPassthroughHostingView(rootView: makeView())

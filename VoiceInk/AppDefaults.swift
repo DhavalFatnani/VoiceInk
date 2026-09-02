@@ -59,7 +59,9 @@ enum AppDefaults {
             // Enhancement
             "SkipShortEnhancement": true,
             "ShortEnhancementWordThreshold": 3,
-            "EnhancementTimeoutSeconds": 7,
+            // EnhancementTimeoutSeconds is deliberately absent — see `EnhancementTimeoutPolicy`.
+            // Registering it made every read look like a person's override and pinned local models
+            // to the cloud's seven seconds.
             "EnhancementRetryOnTimeout": true,
 
             // Model

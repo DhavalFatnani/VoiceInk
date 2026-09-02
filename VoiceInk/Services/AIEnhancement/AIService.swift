@@ -337,6 +337,20 @@ class AIService {
         return provider.availableModels
     }
 
+    /// What the named Ollama model would cost in memory, when Ollama has told us its size.
+    ///
+    /// Only models the server has listed carry a size, so this is `nil` until a refresh has run —
+    /// a missing footprint means "unknown", never "fits".
+    func ollamaModelFootprint(named modelName: String) -> LocalModelFootprint? {
+        _ = externalStateRevision
+
+        let trimmedName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let model = ollamaService.availableModels.first(where: { $0.name == trimmedName }) else {
+            return nil
+        }
+        return LocalModelFootprint(modelName: model.name, modelSizeBytes: model.size)
+    }
+
     init() {
         if userDefaults.string(forKey: "selectedAIProvider") == "GROQ" {
             userDefaults.set("Groq", forKey: "selectedAIProvider")

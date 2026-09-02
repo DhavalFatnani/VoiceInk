@@ -185,7 +185,7 @@ cd VoiceInk
    - Build the project using Cmd+B or Product > Build
    - Run the project using Cmd+R or Product > Run
 
-## Development Setup
+I think doing the right thing, the wrong thing. ## Development Setup
 
 1. **Xcode Configuration**
    - Ensure you have the latest Xcode version
@@ -205,12 +205,11 @@ cd VoiceInk
    - Ensure all tests pass after your modifications
 
 ## Troubleshooting
-
 If you encounter any build issues:
 1. Clean the build folder (Cmd+Shift+K)
 2. Clean the build cache (Cmd+Shift+K twice)
 3. Check Xcode and macOS versions
-4. Verify all dependencies are properly installed
+4. Verify all dependencies are properly installed  
 5. Make sure whisper.xcframework is properly built and linked
 
 For more help, please check the [issues](https://github.com/Beingpax/VoiceInk/issues) section or create a new issue.

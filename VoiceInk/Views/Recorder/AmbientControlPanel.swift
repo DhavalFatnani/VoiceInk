@@ -120,7 +120,8 @@ final class AmbientControlWindowManager {
             if panel.isVisible { panel.orderOut(nil) }
             return
         }
-        guard let screen = NSScreen.main else { return }
+        // The same display the glow is on, or the controls land on one screen and the light on another.
+        guard let screen = AmbientActiveScreen.current() else { return }
 
         guard hasContent() else {
             if panel.isVisible { panel.orderOut(nil) }

@@ -47,13 +47,23 @@ class ScreenCaptureService {
         }
 
         let currentPID = ProcessInfo.processInfo.processIdentifier
-        let focusedWindowHint = makeFocusedWindowHint(excluding: currentPID)
+        // Reading the frontmost app is a cheap local lookup; everything derived from it is not.
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
         guard
             let contextText = await Self.withTimeout(
                 seconds: Self.captureTimeout,
                 operation: {
-                    await Self.captureAndExtractWindowText(
+                    // Built here, off the main actor and inside the time box. It used to be built
+                    // before both: `AXUIElementCopyAttributeValue` is synchronous IPC into the app
+                    // being read, so a busy app — which is exactly what a machine paging a local
+                    // model looks like — froze VoiceInk's UI for as long as it took to answer, with
+                    // no deadline on it at all.
+                    let focusedWindowHint = Self.makeFocusedWindowHint(
+                        frontmostPID: frontmostPID,
+                        currentPID: currentPID
+                    )
+                    return await Self.captureAndExtractWindowText(
                         focusedWindowHint: focusedWindowHint,
                         currentPID: currentPID
                     )
@@ -66,10 +76,18 @@ class ScreenCaptureService {
         return contextText
     }
 
-    private func makeFocusedWindowHint(excluding currentPID: pid_t) -> FocusedWindowHint? {
-        guard let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-            frontmostPID != currentPID
-        else {
+    /// How long any single accessibility read may take before it is abandoned.
+    ///
+    /// The default is measured in whole seconds and applies per call, so an unresponsive app could
+    /// hold the caller far past the capture's own deadline. A hint is a nicety — the capture still
+    /// works without one — so it is not worth waiting on.
+    nonisolated private static let accessibilityTimeout: Float = 0.5
+
+    nonisolated private static func makeFocusedWindowHint(
+        frontmostPID: pid_t?,
+        currentPID: pid_t
+    ) -> FocusedWindowHint? {
+        guard let frontmostPID, frontmostPID != currentPID else {
             return nil
         }
 
@@ -78,6 +96,7 @@ class ScreenCaptureService {
 
         if AXIsProcessTrusted() {
             let appElement = AXUIElementCreateApplication(frontmostPID)
+            AXUIElementSetMessagingTimeout(appElement, accessibilityTimeout)
             if let focusedWindow = copyAXElementAttribute(kAXFocusedWindowAttribute, from: appElement) {
                 focusedTitle = normalized(copyStringAttribute(kAXTitleAttribute, from: focusedWindow))
 
@@ -251,7 +270,7 @@ class ScreenCaptureService {
         }
     }
 
-    private func copyAXElementAttribute(_ attribute: String, from element: AXUIElement) -> AXUIElement? {
+    nonisolated private static func copyAXElementAttribute(_ attribute: String, from element: AXUIElement) -> AXUIElement? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
             let value,
@@ -263,7 +282,7 @@ class ScreenCaptureService {
         return (value as! AXUIElement)
     }
 
-    private func copyStringAttribute(_ attribute: String, from element: AXUIElement) -> String? {
+    nonisolated private static func copyStringAttribute(_ attribute: String, from element: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
             return nil
@@ -272,7 +291,7 @@ class ScreenCaptureService {
         return value as? String
     }
 
-    private func copyCGPointAttribute(_ attribute: String, from element: AXUIElement) -> CGPoint? {
+    nonisolated private static func copyCGPointAttribute(_ attribute: String, from element: AXUIElement) -> CGPoint? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
             let value,
@@ -291,7 +310,7 @@ class ScreenCaptureService {
         return point
     }
 
-    private func copyCGSizeAttribute(_ attribute: String, from element: AXUIElement) -> CGSize? {
+    nonisolated private static func copyCGSizeAttribute(_ attribute: String, from element: AXUIElement) -> CGSize? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
             let value,
@@ -316,7 +335,4 @@ class ScreenCaptureService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func normalized(_ text: String?) -> String? {
-        Self.normalized(text)
-    }
 }
