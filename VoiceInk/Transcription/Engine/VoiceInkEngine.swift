@@ -190,6 +190,15 @@ class VoiceInkEngine: NSObject {
 
     /// Runs before any panel appears, so the frontmost app is still the one being dictated into.
     private func capturePromptDestination(modeId: UUID?) {
+        // A trigger word can switch a take into Prompting after start, so this gates on any
+        // enabled Prompting mode existing at all — not on whether this recording started in one.
+        guard ModeManager.shared.enabledConfigurations.contains(where: { $0.outputMode == .prompting }) else {
+            promptDestination = Destination()
+            promptURLTask?.cancel()
+            promptURLTask = nil
+            promptForced = false
+            return
+        }
         promptForced = modeId != nil
         promptDestination = DestinationProbe.capture(url: nil)
         promptURLTask?.cancel()
@@ -708,10 +717,14 @@ class VoiceInkEngine: NSObject {
             ),
             prompting: TranscriptionPipeline.PromptingHooks(
                 compose: { [weak self] transcript in
-                    await self?.composePrompt(transcript) ?? .passthrough(cleaned: transcript)
+                    guard let self, self.activePipelineTranscriptionID == transcriptionID else {
+                        return .passthrough(cleaned: transcript)
+                    }
+                    return await self.composePrompt(transcript)
                 },
                 present: { [weak self] result in
-                    self?.presentPromptPreview(result)
+                    guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
+                    self.presentPromptPreview(result)
                 }
             )
         )

@@ -42,10 +42,12 @@ final class TranscriptionDelivery {
             return
         }
 
-        if request.output.outputMode == .prompting, let result = request.prompting {
+        if request.output.outputMode == .prompting {
             SoundManager.shared.playStopSound()
             await actions.dismiss()
-            actions.presentPromptPreview(result)
+            if let result = request.prompting {
+                actions.presentPromptPreview(result)
+            }
             return
         }
 
