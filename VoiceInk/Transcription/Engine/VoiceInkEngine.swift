@@ -225,7 +225,8 @@ class VoiceInkEngine: NSObject {
 
     func presentPromptPreview(_ result: ComposeResult) {
         let transcript = lastPromptTranscript
-        promptPreview.present(result, raw: transcript) { [weak self] in
+        promptPreview.present(result, raw: transcript, targetBundleID: promptDestination.bundleIdentifier) {
+            [weak self] in
             await self?.composePrompt(transcript) ?? .passthrough(cleaned: transcript)
         }
     }

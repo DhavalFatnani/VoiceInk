@@ -51,8 +51,10 @@ struct TranscriptionDeliveryPromptingTests {
 
     @Test func aMissingComposeResultStillDismissesWithoutPreviewingOrPasting() async {
         let spy = Spy()
+        // `text: nil` deliberately: if a future regression reopens the fallthrough this guards
+        // against, the final `if let text = request.text` branch finds nothing to paste either.
         let request = TranscriptionDelivery.Request(
-            transcription: makeCompletedTranscription(), text: "hello", output: makePromptingOutput(),
+            transcription: makeCompletedTranscription(), text: nil, output: makePromptingOutput(),
             responseConfig: nil, responseError: nil, isAssistantFollowUp: false, prompting: nil)
 
         await TranscriptionDelivery().deliver(request, actions: makeActions(spy))

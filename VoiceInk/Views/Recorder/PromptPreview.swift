@@ -105,10 +105,16 @@ final class PromptPreviewController {
     private let monitor = ShortcutMonitor()
     private var model: PromptPreviewModel?
     private var retryCompose: (() async -> ComposeResult)?
+    /// The app captured at recording start. Insert pastes there and nowhere else.
+    private var targetBundleID: String?
 
-    func present(_ result: ComposeResult, raw: String, retry: @escaping () async -> ComposeResult) {
+    func present(
+        _ result: ComposeResult, raw: String, targetBundleID: String?,
+        retry: @escaping () async -> ComposeResult
+    ) {
         let model = PromptPreviewModel(result: result, raw: raw)
         self.model = model
+        self.targetBundleID = targetBundleID
         retryCompose = retry
 
         let panel = panel ?? Self.makePanel()
@@ -156,8 +162,26 @@ final class PromptPreviewController {
 
     func insert() {
         guard let text = model?.insertText, !text.isEmpty else { return close() }
+        let target = targetBundleID
         close()
-        CursorPaster.startPasteAtCursor(text)
+        if Self.shouldPaste(target: target, frontmost: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
+            CursorPaster.startPasteAtCursor(text)
+        } else {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            NotificationManager.shared.showNotification(
+                title: String(
+                    localized: "The app you dictated into isn't in front, so the prompt was copied instead of pasted."
+                ),
+                type: .info)
+        }
+    }
+
+    /// True when it is safe to paste into whatever is frontmost now: either nothing was captured
+    /// at recording start, or the app that was captured is still the one in front.
+    static func shouldPaste(target: String?, frontmost: String?) -> Bool {
+        target == nil || target == frontmost
     }
 
     func close() {
@@ -165,6 +189,7 @@ final class PromptPreviewController {
         panel?.orderOut(nil)
         model = nil
         retryCompose = nil
+        targetBundleID = nil
     }
 
     private func retry() {

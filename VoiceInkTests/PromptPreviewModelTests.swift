@@ -45,4 +45,22 @@ struct PromptPreviewModelTests {
         #expect(model.headline == "Couldn't structure this")
         #expect(model.canRetry && !model.isOffline)
     }
+
+    // MARK: - shouldPaste
+
+    @Test func noCapturedTargetAlwaysPastes() {
+        #expect(PromptPreviewController.shouldPaste(target: nil, frontmost: "com.apple.Terminal"))
+    }
+
+    @Test func theCapturedTargetStillBeingFrontmostPastes() {
+        #expect(PromptPreviewController.shouldPaste(target: "com.apple.Terminal", frontmost: "com.apple.Terminal"))
+    }
+
+    @Test func anotherAppInFrontDoesNotPaste() {
+        #expect(!PromptPreviewController.shouldPaste(target: "com.apple.Terminal", frontmost: "com.apple.Safari"))
+    }
+
+    @Test func noFrontmostAppWithATargetCapturedDoesNotPaste() {
+        #expect(!PromptPreviewController.shouldPaste(target: "com.apple.Terminal", frontmost: nil))
+    }
 }
