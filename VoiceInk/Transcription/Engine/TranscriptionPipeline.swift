@@ -1,3 +1,4 @@
+import AnantaPrompting
 import AppKit
 import Foundation
 import SwiftData
@@ -21,6 +22,14 @@ class TranscriptionPipeline {
             showResponse: { _, _ in },
             failResponse: { _ in }
         )
+    }
+
+    /// Prompting mode: the composer runs after cleanup, and its result is previewed instead of pasted.
+    struct PromptingHooks: Sendable {
+        let compose: @MainActor (String) async -> ComposeResult
+        let present: @MainActor (ComposeResult) -> Void
+
+        static let inactive = PromptingHooks(compose: { .passthrough(cleaned: $0) }, present: { _ in })
     }
 
     private let modelContext: ModelContext
@@ -64,11 +73,13 @@ class TranscriptionPipeline {
         onCancel: @escaping () async -> Void,
         onDismiss: @escaping @MainActor () async -> Void,
         onPresentResultPeek: @escaping @MainActor (RecorderResultPeek) -> Void = { _ in },
-        assistant: AssistantHooks = .inactive
+        assistant: AssistantHooks = .inactive,
+        prompting: PromptingHooks = .inactive
     ) async {
         let model = transcriptionConfiguration.model
         var finalText: String?
         var responseError: String?
+        var promptResult: ComposeResult?
         var outputForDelivery: OutputRuntimeConfiguration?
         var responseConfig: EnhancementRuntimeConfiguration?
         /// Declared out here so the save closure below can still see it — the replacements run
@@ -254,6 +265,25 @@ class TranscriptionPipeline {
                         }
                     }
                 }
+
+                if resolvedOutputConfiguration.outputMode == .prompting {
+                    if shouldCancel() {
+                        await finishCanceledTranscription()
+                        return
+                    }
+                    onStateChange(.enhancing)
+                    let result = await prompting.compose(cleanedText)
+                    promptResult = result
+                    if case .prompt(let prompt) = result {
+                        let latency = prompt.provenance.latency.components
+                        transcription.enhancedText = prompt.text
+                        transcription.aiEnhancementModelName = prompt.provenance.model
+                        transcription.promptName = "Prompting · \(prompt.profile.rawValue)"
+                        transcription.enhancementDuration =
+                            Double(latency.seconds) + Double(latency.attoseconds) / 1e18
+                        finalText = prompt.text
+                    }
+                }
             }
 
             transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
@@ -320,7 +350,8 @@ class TranscriptionPipeline {
                 output: outputForDelivery ?? outputConfiguration(),
                 responseConfig: responseConfig,
                 responseError: responseError,
-                isAssistantFollowUp: assistant.isFollowUp
+                isAssistantFollowUp: assistant.isFollowUp,
+                prompting: promptResult
             ),
             actions: TranscriptionDelivery.Actions(
                 setState: onStateChange,
@@ -328,7 +359,8 @@ class TranscriptionPipeline {
                 presentResultPeek: onPresentResultPeek,
                 sendFollowUp: assistant.sendFollowUp,
                 showResponse: assistant.showResponse,
-                failResponse: assistant.failResponse
+                failResponse: assistant.failResponse,
+                presentPromptPreview: prompting.present
             )
         )
 

@@ -1,3 +1,4 @@
+import AnantaPrompting
 import AppKit
 import Foundation
 import SwiftData
@@ -14,6 +15,7 @@ final class TranscriptionDelivery {
         let responseConfig: EnhancementRuntimeConfiguration?
         let responseError: String?
         let isAssistantFollowUp: Bool
+        var prompting: ComposeResult? = nil
     }
 
     struct Actions {
@@ -25,6 +27,8 @@ final class TranscriptionDelivery {
         let sendFollowUp: @MainActor (String, Transcription) async -> Void
         let showResponse: @MainActor (String, String?) async -> Void
         let failResponse: @MainActor (String) async -> Void
+        /// Prompting mode shows its result for approval; nothing is pasted until the user inserts it.
+        var presentPromptPreview: @MainActor (ComposeResult) -> Void = { _ in }
     }
 
     func deliver(_ request: Request, actions: Actions) async {
@@ -35,6 +39,13 @@ final class TranscriptionDelivery {
 
         if request.isAssistantFollowUp {
             await deliverFollowUp(request, actions: actions)
+            return
+        }
+
+        if request.output.outputMode == .prompting, let result = request.prompting {
+            SoundManager.shared.playStopSound()
+            await actions.dismiss()
+            actions.presentPromptPreview(result)
             return
         }
 

@@ -108,6 +108,18 @@ class VoiceInkEngine: NSObject {
     private var activeRecordingContextTasks: [Task<Void, Never>] = []
     private var voiceInkRefinePreparationTask: Task<Void, Never>?
 
+    private var promptDestination = Destination()
+    private var promptURLTask: Task<URL?, Never>?
+    /// Recording started with a mode's own shortcut. For Prompting this always means "make it a prompt".
+    private var promptForced = false
+    private var lastPromptTranscript = ""
+
+    @ObservationIgnored private lazy var promptComposer: PromptComposer = {
+        let base = UserDefaults.standard.string(forKey: "ollamaBaseURL") ?? OllamaService.defaultBaseURL
+        let model = OllamaModel(baseURL: URL(string: base) ?? URL(string: OllamaService.defaultBaseURL)!)
+        return PromptComposer(model: model, briefs: BriefStore(model: model))
+    }()
+
     let recorder = Recorder()
     var recordedFile: URL? = nil
     let recordingsDirectory: URL
@@ -173,6 +185,37 @@ class VoiceInkEngine: NSObject {
         } catch {
             logger.error("❌ Error creating recordings directory: \(error, privacy: .public)")
         }
+    }
+
+    /// Runs before any panel appears, so the frontmost app is still the one being dictated into.
+    private func capturePromptDestination(modeId: UUID?) {
+        promptForced = modeId != nil
+        promptDestination = DestinationProbe.capture(url: nil)
+        promptURLTask?.cancel()
+        promptURLTask = nil
+        guard let bundleID = promptDestination.bundleIdentifier,
+            let browser = BrowserType.allCases.first(where: { $0.bundleIdentifier == bundleID })
+        else { return }
+        promptURLTask = Task {
+            (try? await BrowserURLService.shared.getCurrentURL(from: browser)).flatMap(URL.init(string:))
+        }
+    }
+
+    private func composePrompt(_ transcript: String) async -> ComposeResult {
+        lastPromptTranscript = transcript
+        var destination = promptDestination
+        destination.url = await promptURLTask?.value
+        let pinned = UserDefaults.standard.string(forKey: "PromptingPinnedProject")
+            .map { URL(filePath: ($0 as NSString).expandingTildeInPath, directoryHint: .isDirectory) }
+        return await promptComposer.compose(
+            ComposeRequest(
+                transcript: transcript, destination: destination, pinnedProject: pinned,
+                forceCompose: promptForced))
+    }
+
+    func presentPromptPreview(_ result: ComposeResult) {
+        // Task 15 replaces this body with the preview panel.
+        logger.notice("Prompting result ready")
     }
 
     func getEnhancementService() -> AIEnhancementService? {
@@ -246,6 +289,7 @@ class VoiceInkEngine: NSObject {
 
                         let startID = UUID()
                         self.activeRecordingStartID = startID
+                        self.capturePromptDestination(modeId: modeId)
                         let activeModeTask = ActiveWindowService.shared.beginApplyingConfiguration(modeId: modeId) {
                             [weak self] in
                             guard let self else { return false }
@@ -657,6 +701,14 @@ class VoiceInkEngine: NSObject {
                 failResponse: { [weak self] message in
                     guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
                     self.assistantSession.fail(message)
+                }
+            ),
+            prompting: TranscriptionPipeline.PromptingHooks(
+                compose: { [weak self] transcript in
+                    await self?.composePrompt(transcript) ?? .passthrough(cleaned: transcript)
+                },
+                present: { [weak self] result in
+                    self?.presentPromptPreview(result)
                 }
             )
         )
