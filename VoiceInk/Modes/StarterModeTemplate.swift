@@ -7,6 +7,7 @@ enum StarterModeKind: String, CaseIterable, Identifiable {
     case rewrite
     case assistant
     case hinglish
+    case prompting
 
     var id: String { rawValue }
 }
@@ -41,10 +42,10 @@ struct StarterModeTemplate: Identifiable {
             labels.append("No AI")
         }
 
-        if outputMode == .respond {
-            labels.append("Respond")
-        } else {
-            labels.append("Paste")
+        switch outputMode {
+        case .respond: labels.append("Respond")
+        case .prompting: labels.append("Prompt")
+        default: labels.append("Paste")
         }
 
         return labels
@@ -148,6 +149,23 @@ enum StarterModeCatalog {
             promptId: PromptTemplates.assistantPromptId,
             outputMode: .respond,
             usesAIEnhancement: true,
+            useSelectedTextContext: false,
+            useScreenCapture: false,
+            isDefault: false
+        ),
+        StarterModeTemplate(
+            kind: .prompting,
+            id: UUID(uuidString: "10000000-0000-0000-0000-000000000007")!,
+            name: "Prompting",
+            icon: .symbol("wand.and.stars"),
+            description: String(localized: "Turn a spoken instruction into a prompt for an AI tool."),
+            guidance: String(
+                localized:
+                    "Use this when you dictate to Claude Code, Cursor, ChatGPT or another AI tool. What you say becomes a prompt shaped for that tool, with your project's context, and you see it before it is inserted. It never presses send."
+            ),
+            promptId: nil,
+            outputMode: .prompting,
+            usesAIEnhancement: false,
             useSelectedTextContext: false,
             useScreenCapture: false,
             isDefault: false
