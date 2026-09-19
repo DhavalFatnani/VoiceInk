@@ -1,0 +1,187 @@
+import AnantaPrompting
+import AppKit
+import Carbon.HIToolbox
+import SwiftUI
+
+/// What the preview shows for one composed result.
+@MainActor
+@Observable
+final class PromptPreviewModel {
+    var result: ComposeResult
+    let raw: String
+    var showingRaw = false
+    var isRetrying = false
+
+    init(result: ComposeResult, raw: String) {
+        self.result = result
+        self.raw = raw
+    }
+
+    var hasPrompt: Bool {
+        if case .prompt = result { return true }
+        return false
+    }
+
+    var isOffline: Bool {
+        if case .unstructured(_, .modelOffline) = result { return true }
+        return false
+    }
+
+    var canRetry: Bool {
+        if case .unstructured = result { return true }
+        return false
+    }
+
+    var insertText: String {
+        switch result {
+        case .prompt(let prompt): prompt.text
+        case .passthrough(let cleaned), .unstructured(let cleaned, _): cleaned
+        }
+    }
+
+    var insertLabel: String { hasPrompt ? "Insert" : "Insert my words" }
+
+    var headline: String {
+        switch result {
+        case .prompt(let prompt):
+            "\(Self.label(prompt.profile)) · \(prompt.project?.lastPathComponent ?? "No project")"
+        case .passthrough:
+            "Short reply — not expanded"
+        case .unstructured(_, .modelOffline):
+            "Model offline"
+        case .unstructured:
+            "Couldn't structure this"
+        }
+    }
+
+    static func label(_ kind: TargetProfile.Kind) -> String {
+        switch kind {
+        case .repoAgent: "Repo agent"
+        case .chat: "Chat"
+        case .builder: "Builder"
+        case .research: "Research"
+        case .generic: "General"
+        }
+    }
+}
+
+struct PromptPreviewView: View {
+    let model: PromptPreviewModel
+    let insert: () -> Void
+    let cancel: () -> Void
+    let retry: () -> Void
+    let startOllama: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(model.headline).font(.headline)
+            ScrollView {
+                Text(model.showingRaw ? model.raw : model.insertText)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack {
+                if model.hasPrompt {
+                    Button(model.showingRaw ? "Show prompt" : "Show what I said") { model.showingRaw.toggle() }
+                }
+                if model.isOffline { Button("Start Ollama", action: startOllama) }
+                if model.canRetry { Button("Retry", action: retry).disabled(model.isRetrying) }
+                Spacer()
+                Button("Cancel  esc", action: cancel)
+                Button("\(model.insertLabel)  ⏎", action: insert).buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 560, height: 360)
+    }
+}
+
+/// A floating panel that never takes focus, so the app being dictated into stays frontmost and the
+/// paste lands there. Return and Esc are captured by a shortcut monitor and swallowed while it is open.
+@MainActor
+final class PromptPreviewController {
+    private var panel: NSPanel?
+    private let monitor = ShortcutMonitor()
+    private var model: PromptPreviewModel?
+    private var retryCompose: (() async -> ComposeResult)?
+
+    func present(_ result: ComposeResult, raw: String, retry: @escaping () async -> ComposeResult) {
+        let model = PromptPreviewModel(result: result, raw: raw)
+        self.model = model
+        retryCompose = retry
+
+        let panel = panel ?? Self.makePanel()
+        panel.contentView = NSHostingView(
+            rootView: PromptPreviewView(
+                model: model,
+                insert: { [weak self] in self?.insert() },
+                cancel: { [weak self] in self?.close() },
+                retry: { [weak self] in self?.retry() },
+                startOllama: Self.startOllama))
+        panel.setContentSize(NSSize(width: 560, height: 360))
+        if let screen = NSScreen.main?.visibleFrame {
+            panel.setFrameOrigin(NSPoint(x: screen.midX - 280, y: screen.minY + 120))
+        }
+        panel.orderFrontRegardless()
+        self.panel = panel
+
+        monitor.start(
+            shortcuts: [
+                .promptPreviewInsert: .key(keyCode: UInt16(kVK_Return), modifierFlags: []),
+                .promptPreviewCancel: .key(keyCode: UInt16(kVK_Escape), modifierFlags: []),
+            ],
+            onKeyDown: { [weak self] action, _ in
+                switch action {
+                case .promptPreviewInsert: self?.insert()
+                case .promptPreviewCancel: self?.close()
+                default: break
+                }
+            },
+            onKeyUp: { _, _ in })
+    }
+
+    func insert() {
+        guard let text = model?.insertText, !text.isEmpty else { return close() }
+        close()
+        CursorPaster.startPasteAtCursor(text)
+    }
+
+    func close() {
+        monitor.stop()
+        panel?.orderOut(nil)
+        model = nil
+        retryCompose = nil
+    }
+
+    private func retry() {
+        guard let model, let retryCompose else { return }
+        model.isRetrying = true
+        Task {
+            model.result = await retryCompose()
+            model.isRetrying = false
+        }
+    }
+
+    /// Opens Ollama without bringing it forward, so the insert still goes to the original app.
+    static func startOllama() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(
+            at: URL(filePath: "/Applications/Ollama.app"), configuration: configuration)
+    }
+
+    static func makePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: .zero, styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            backing: .buffered, defer: true)
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        return panel
+    }
+}

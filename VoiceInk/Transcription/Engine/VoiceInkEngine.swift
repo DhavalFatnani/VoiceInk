@@ -119,6 +119,7 @@ class VoiceInkEngine: NSObject {
         let model = OllamaModel(baseURL: URL(string: base) ?? URL(string: OllamaService.defaultBaseURL)!)
         return PromptComposer(model: model, briefs: BriefStore(model: model))
     }()
+    private let promptPreview = PromptPreviewController()
 
     let recorder = Recorder()
     var recordedFile: URL? = nil
@@ -214,8 +215,10 @@ class VoiceInkEngine: NSObject {
     }
 
     func presentPromptPreview(_ result: ComposeResult) {
-        // Task 15 replaces this body with the preview panel.
-        logger.notice("Prompting result ready")
+        let transcript = lastPromptTranscript
+        promptPreview.present(result, raw: transcript) { [weak self] in
+            await self?.composePrompt(transcript) ?? .passthrough(cleaned: transcript)
+        }
     }
 
     func getEnhancementService() -> AIEnhancementService? {
