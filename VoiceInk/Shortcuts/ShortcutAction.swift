@@ -13,6 +13,7 @@ enum ShortcutAction: Hashable {
     case recorderPanelEscape
     case recorderPanelMode(Int)
     case promptPreviewInsert
+    case promptPreviewInsertKeypad
     case promptPreviewCancel
 
     var userDefaultsKey: String {
@@ -21,7 +22,8 @@ enum ShortcutAction: Hashable {
 
     var isStored: Bool {
         switch self {
-        case .recorderPanelEscape, .recorderPanelMode, .promptPreviewInsert, .promptPreviewCancel:
+        case .recorderPanelEscape, .recorderPanelMode, .promptPreviewInsert, .promptPreviewInsertKeypad,
+            .promptPreviewCancel:
             return false
         default:
             return true
@@ -54,6 +56,8 @@ enum ShortcutAction: Hashable {
             return "recorderPanelMode_\(index)"
         case .promptPreviewInsert:
             return "promptPreviewInsert"
+        case .promptPreviewInsertKeypad:
+            return "promptPreviewInsertKeypad"
         case .promptPreviewCancel:
             return "promptPreviewCancel"
         }
@@ -94,6 +98,8 @@ enum ShortcutAction: Hashable {
         case .recorderPanelMode(let index):
             return String(format: String(localized: "Select Mode %@"), Self.displayNumber(forRecorderPanelIndex: index))
         case .promptPreviewInsert:
+            return String(localized: "Insert Prompt")
+        case .promptPreviewInsertKeypad:
             return String(localized: "Insert Prompt")
         case .promptPreviewCancel:
             return String(localized: "Cancel Prompt")

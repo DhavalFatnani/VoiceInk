@@ -126,19 +126,32 @@ final class PromptPreviewController {
         panel.orderFrontRegardless()
         self.panel = panel
 
-        monitor.start(
+        // Act on key-up, not key-down: the monitor suppresses the key-down, every auto-repeat
+        // while the key stays held, and the key-up. Acting on key-down instead would leave that
+        // key-up (and any auto-repeat) unsuppressed once `insert()`/`close()` stop the monitor,
+        // so it would leak to the app the paste just landed in.
+        let started = monitor.start(
             shortcuts: [
                 .promptPreviewInsert: .key(keyCode: UInt16(kVK_Return), modifierFlags: []),
+                .promptPreviewInsertKeypad: .key(keyCode: UInt16(kVK_ANSI_KeypadEnter), modifierFlags: []),
                 .promptPreviewCancel: .key(keyCode: UInt16(kVK_Escape), modifierFlags: []),
             ],
-            onKeyDown: { [weak self] action, _ in
+            onKeyDown: { _, _ in },
+            onKeyUp: { [weak self] action, _ in
                 switch action {
-                case .promptPreviewInsert: self?.insert()
+                case .promptPreviewInsert, .promptPreviewInsertKeypad: self?.insert()
                 case .promptPreviewCancel: self?.close()
                 default: break
                 }
-            },
-            onKeyUp: { _, _ in })
+            })
+
+        guard started else {
+            close()
+            NotificationManager.shared.showNotification(
+                title: String(localized: "Prompt preview needs Accessibility access to capture Return and Esc."),
+                type: .error)
+            return
+        }
     }
 
     func insert() {
