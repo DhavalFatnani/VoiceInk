@@ -201,6 +201,9 @@ class VoiceInkEngine: NSObject {
         }
         promptForced = modeId != nil
         promptDestination = DestinationProbe.capture(url: nil)
+        // Load the model while the user is still speaking: a cold load is the difference between
+        // a prompt and a timeout on the first dictation after an idle spell.
+        Task { [promptComposer] in await promptComposer.warmUp() }
         promptURLTask?.cancel()
         promptURLTask = nil
         guard let bundleID = promptDestination.bundleIdentifier,
